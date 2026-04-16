@@ -1,0 +1,39 @@
+# Compiled class files
+*.class
+
+# Log files
+*.log
+logs/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+*.swp
+*.swo
+
+# Maven
+target/
+pom.xml.tag
+pom.xml.releaseBackup
+pom.xml.versionsBackup
+pom.xml.next
+release.properties
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+*.env.local
+
+# Uploads
+uploads/
+
+# Build artifacts
+*.jar
+*.war
+
+# Container
+docker-compose.override.yml

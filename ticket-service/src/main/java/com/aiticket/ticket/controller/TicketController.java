@@ -1,0 +1,114 @@
+package com.aiticket.ticket.controller;
+
+import com.aiticket.common.dto.PageResult;
+import com.aiticket.common.dto.Result;
+import com.aiticket.ticket.dto.*;
+import com.aiticket.ticket.service.TicketService;
+import jakarta.validation.Valid;
+import lombok.RequiredArgsConstructor;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+
+@RestController
+@RequestMapping("/api/v1/tickets")
+@RequiredArgsConstructor
+public class TicketController {
+
+    private final TicketService ticketService;
+
+    @PostMapping
+    public Result<TicketDTO> createTicket(@Valid @RequestBody CreateTicketRequest request,
+                                          @RequestHeader(value = "X-User-Id", required = false) Long userId,
+                                          @RequestHeader(value = "X-User-Name", required = false) String username) {
+        if (userId == null) userId = 1L; // fallback for testing
+        if (username == null) username = "anonymous";
+        return Result.success(ticketService.createTicket(request, userId, username));
+    }
+
+    @GetMapping("/{id}")
+    public Result<TicketDTO> getTicket(@PathVariable Long id) {
+        return Result.success(ticketService.getTicket(id));
+    }
+
+    @GetMapping
+    public Result<PageResult<TicketDTO>> listTickets(TicketQueryRequest query) {
+        return Result.success(ticketService.listTickets(query));
+    }
+
+    @GetMapping("/my")
+    public Result<PageResult<TicketDTO>> listMyTickets(
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(defaultValue = "10") int pageSize,
+            @RequestHeader(value = "X-User-Id", required = false) Long userId) {
+        if (userId == null) userId = 1L;
+        return Result.success(ticketService.listMyTickets(userId, page, pageSize));
+    }
+
+    @GetMapping("/pending")
+    public Result<PageResult<TicketDTO>> listPendingTickets(
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(defaultValue = "10") int pageSize,
+            @RequestHeader(value = "X-User-Id", required = false) Long userId) {
+        if (userId == null) userId = 1L;
+        return Result.success(ticketService.listPendingTickets(userId, page, pageSize));
+    }
+
+    @PutMapping("/{id}")
+    public Result<TicketDTO> updateTicket(@PathVariable Long id,
+                                          @RequestBody UpdateTicketRequest request) {
+        return Result.success(ticketService.updateTicket(id, request));
+    }
+
+    @DeleteMapping("/{id}")
+    public Result<Void> deleteTicket(@PathVariable Long id) {
+        ticketService.deleteTicket(id);
+        return Result.success();
+    }
+
+    @PutMapping("/{id}/assign")
+    public Result<TicketDTO> assignHandler(@PathVariable Long id,
+                                            @Valid @RequestBody AssignHandlerRequest request) {
+        return Result.success(ticketService.assignHandler(id, request.getHandlerId(), null));
+    }
+
+    @PutMapping("/{id}/start")
+    public Result<TicketDTO> startProcessing(@PathVariable Long id) {
+        return Result.success(ticketService.startProcessing(id));
+    }
+
+    @PutMapping("/{id}/resolve")
+    public Result<TicketDTO> resolve(@PathVariable Long id) {
+        return Result.success(ticketService.resolve(id));
+    }
+
+    @PutMapping("/{id}/close")
+    public Result<TicketDTO> close(@PathVariable Long id) {
+        return Result.success(ticketService.close(id));
+    }
+
+    @PutMapping("/{id}/reopen")
+    public Result<TicketDTO> reopen(@PathVariable Long id) {
+        return Result.success(ticketService.reopen(id));
+    }
+
+    @PostMapping("/{id}/comment")
+    public Result<CommentDTO> addComment(@PathVariable Long id,
+                                         @Valid @RequestBody AddCommentRequest request,
+                                         @RequestHeader(value = "X-User-Id", required = false) Long userId,
+                                         @RequestHeader(value = "X-User-Name", required = false) String username) {
+        if (userId == null) userId = 1L;
+        if (username == null) username = "anonymous";
+        return Result.success(ticketService.addComment(id, request, userId, username));
+    }
+
+    @GetMapping("/{id}/comments")
+    public Result<List<CommentDTO>> getComments(@PathVariable Long id) {
+        return Result.success(ticketService.getComments(id));
+    }
+
+    @GetMapping("/stats")
+    public Result<TicketStatsDTO> getStats() {
+        return Result.success(ticketService.getStats());
+    }
+}

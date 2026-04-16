@@ -1,0 +1,38 @@
+server:
+  port: 8083
+
+spring:
+  application:
+    name: ai-service
+
+  datasource:
+    url: jdbc:mysql://localhost:3306/aiticket?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+    username: aiticket
+    password: aiticket
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.MySQLDialect
+        format_sql: true
+
+  data:
+    redis:
+      host: localhost
+      port: 6379
+
+# AI Configuration
+ai:
+  minimax:
+    api-key: sk-cp-EExKvzin8rcRxUO4RbT-H4Di_GOH3TJz2szF--BEkF3auqyAH6LT-00veAwtT920rAyzFo_x2lMhq0G90WPA6dyh5YyGYYTbpQagcJ_U4ySey1lEDHT9xJM
+    model: MiniMax-M2.7
+    base-url: https://api.minimaxi.com
+
+# Logging
+logging:
+  level:
+    com.aiticket: DEBUG
