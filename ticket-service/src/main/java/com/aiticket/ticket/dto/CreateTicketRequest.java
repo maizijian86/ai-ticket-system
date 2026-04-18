@@ -5,6 +5,7 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 import lombok.Data;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
 
@@ -21,4 +22,10 @@ public class CreateTicketRequest {
     private Urgency urgency = Urgency.NORMAL;
 
     private List<Map<String, String>> attachments; // [{name, path, size, type}]
+
+    private List<Map<String, String>> githubRepos; // [{name, url}]
+
+    private BigDecimal price; // User confirmed price (AI suggested + user modified)
+
+    private BigDecimal aiPriceSuggestion; // AI suggested price for reference
 }

@@ -7,7 +7,7 @@ import lombok.Data;
 @AllArgsConstructor
 public class TicketStatsDTO {
     private long open;
-    private long processing;
-    private long resolved;
-    private long closed;
+    private long accepted;
+    private long pendingApproval;
+    private long completed;
 }

@@ -5,8 +5,8 @@
 -- Insert sample users
 INSERT INTO users (username, password, email, nickname, role, status, created_at, updated_at) VALUES
 ('admin', '$2a$10$XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX', 'admin@aiticket.com', 'Administrator', 'ADMIN', 'active', NOW(), NOW()),
-('handler_zhang', '$2a$10$XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX', 'zhang@aiticket.com', '张三', 'HANDLER', 'active', NOW(), NOW()),
-('handler_li', '$2a$10$XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX', 'li@aiticket.com', '李四', 'HANDLER', 'active', NOW(), NOW()),
+('handler_zhang', '$2a$10$XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX', 'zhang@aiticket.com', '张三', 'USER', 'active', NOW(), NOW()),
+('handler_li', '$2a$10$XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX', 'li@aiticket.com', '李四', 'USER', 'active', NOW(), NOW()),
 ('user_wang', '$2a$10$XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX', 'wang@aiticket.com', '王五', 'USER', 'active', NOW(), NOW());
 
 -- Insert skill profiles for handlers (using JSON format for MySQL)

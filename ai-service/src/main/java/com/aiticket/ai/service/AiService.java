@@ -224,6 +224,27 @@ public class AiService {
         }
     }
 
+    public RecommendPriceResponse recommendPrice(String content, String category, String priority, String urgency) {
+        log.info("AI recommending price for content, category: {}, priority: {}", category, priority);
+
+        try {
+            MiniMaxRequest request = MiniMaxRequest.builder()
+                    .model(modelName)
+                    .maxTokens(500)
+                    .messages(List.of(
+                            Map.of("role", "user", "content", buildRecommendPricePrompt(content, category, priority, urgency))
+                    ))
+                    .build();
+
+            String response = callMiniMax(request);
+
+            return parseRecommendPriceResponse(response);
+        } catch (Exception e) {
+            log.error("LLM price recommendation failed, using default", e);
+            return buildDefaultPriceRecommendation();
+        }
+    }
+
     public EmbeddingResponse generateEmbedding(String text) {
         // MySQL doesn't support vector type, return empty embedding
         // In production, could call MiniMax embedding API if needed
@@ -468,6 +489,68 @@ public class AiService {
                 请基于上述参考信息，生成一个专业、友好的回复建议。
                 如果参考信息中有相关解决方案，请结合实际给出回复。
                 """, kbContext.toString(), question, context != null ? "对话上下文：" + context : "");
+    }
+
+    private String buildRecommendPricePrompt(String content, String category, String priority, String urgency) {
+        return String.format("""
+                请根据以下工单内容，推荐一个合理的价格。
+
+                工单类别：%s
+                工单优先级：%s
+                用户紧急程度：%s
+
+                定价参考：
+                - BUG类问题通常在50-200元
+                - CONSULT咨询类通常在10-50元
+                - SUGGESTION建议类通常在20-100元
+                - COMPLAINT投诉类通常在30-150元
+                - 优先级越高价格越高
+                - 紧急程度越高价格越高
+
+                请返回JSON格式：
+                {"suggestedPrice": 推荐价格(数字), "reasoning": "定价理由", "priceRange": "价格区间字符串"}
+
+                工单内容：
+                %s
+                """, category != null ? category : "未分类",
+                   priority != null ? priority : "P2",
+                   urgency != null ? urgency : "NORMAL",
+                   content);
+    }
+
+    private RecommendPriceResponse parseRecommendPriceResponse(String response) {
+        try {
+            Pattern pricePattern = Pattern.compile("\"suggestedPrice\"\\s*:\\s*([\\d.]+)");
+            Pattern reasoningPattern = Pattern.compile("\"reasoning\"\\s*:\\s*\"([^\"\\\\]*(?:\\\\.[^\"\\\\]*)*)\"");
+            Pattern rangePattern = Pattern.compile("\"priceRange\"\\s*:\\s*\"([^\"\\\\]*(?:\\\\.[^\"\\\\]*)*)\"");
+
+            Matcher priceMatcher = pricePattern.matcher(response);
+            Matcher reasoningMatcher = reasoningPattern.matcher(response);
+            Matcher rangeMatcher = rangePattern.matcher(response);
+
+            if (priceMatcher.find()) {
+                BigDecimal price = new BigDecimal(priceMatcher.group(1));
+                String reasoning = reasoningMatcher.find() ? unescapeJsonString(reasoningMatcher.group(1)) : "";
+                String range = rangeMatcher.find() ? unescapeJsonString(rangeMatcher.group(1)) : "";
+
+                return RecommendPriceResponse.builder()
+                        .suggestedPrice(price)
+                        .reasoning(reasoning)
+                        .priceRange(range)
+                        .build();
+            }
+        } catch (Exception e) {
+            log.error("Failed to parse price recommendation response: {}", response, e);
+        }
+        return buildDefaultPriceRecommendation();
+    }
+
+    private RecommendPriceResponse buildDefaultPriceRecommendation() {
+        return RecommendPriceResponse.builder()
+                .suggestedPrice(new BigDecimal("50.00"))
+                .reasoning("Based on default pricing")
+                .priceRange("30-100")
+                .build();
     }
 
     private ClassifyResult parseClassificationResponse(String response) {

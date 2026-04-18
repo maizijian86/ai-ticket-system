@@ -54,12 +54,12 @@ public interface TicketRepository extends JpaRepository<Ticket, Long>, JpaSpecif
 
     // Update status to processing
     @Modifying
-    @Query("UPDATE Ticket t SET t.status = 'PROCESSING', t.updatedAt = :now WHERE t.id = :ticketId AND t.status = 'OPEN'")
+    @Query("UPDATE Ticket t SET t.status = 'ACCEPTED', t.updatedAt = :now WHERE t.id = :ticketId AND t.status = 'OPEN'")
     int startProcessing(@Param("ticketId") Long ticketId, @Param("now") LocalDateTime now);
 
     // Resolve ticket
     @Modifying
-    @Query("UPDATE Ticket t SET t.status = 'RESOLVED', t.resolvedAt = :now, t.updatedAt = :now WHERE t.id = :ticketId")
+    @Query("UPDATE Ticket t SET t.status = 'COMPLETED', t.resolvedAt = :now, t.updatedAt = :now WHERE t.id = :ticketId")
     int resolve(@Param("ticketId") Long ticketId, @Param("now") LocalDateTime now);
 
     // Close ticket
@@ -73,6 +73,6 @@ public interface TicketRepository extends JpaRepository<Ticket, Long>, JpaSpecif
     int reopen(@Param("ticketId") Long ticketId, @Param("now") LocalDateTime now);
 
     // Find recently resolved for knowledge base
-    @Query("SELECT t FROM Ticket t WHERE t.status = 'RESOLVED' AND t.deletedAt IS NULL ORDER BY t.resolvedAt DESC")
+    @Query("SELECT t FROM Ticket t WHERE t.status = 'COMPLETED' AND t.deletedAt IS NULL ORDER BY t.resolvedAt DESC")
     List<Ticket> findRecentlyResolved(Pageable pageable);
 }

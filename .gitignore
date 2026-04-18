@@ -37,3 +37,6 @@ uploads/
 
 # Container
 docker-compose.override.yml
+
+# Frontend (use separate repo at d:/ai-ticket-system-qd)
+frontend/

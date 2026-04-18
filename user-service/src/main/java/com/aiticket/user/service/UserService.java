@@ -38,7 +38,7 @@ public class UserService {
         if (userRepository.existsByUsername(request.getUsername())) {
             throw new BusinessException(400, "Username already exists");
         }
-        if (userRepository.existsByEmail(request.getEmail())) {
+        if (request.getEmail() != null && userRepository.existsByEmail(request.getEmail())) {
             throw new BusinessException(400, "Email already exists");
         }
 
@@ -47,8 +47,10 @@ public class UserService {
         user.setPassword(passwordEncoder.encode(request.getPassword()));
         user.setEmail(request.getEmail());
         user.setNickname(request.getNickname() != null ? request.getNickname() : request.getUsername());
-        user.setRole(Role.USER);
+        user.setRole(request.getRole() != null ? request.getRole() : Role.USER);
         user.setStatus("active");
+        user.setGithubUsername(request.getGithubUsername());
+        user.setGithubRepos(request.getGithubRepos());
 
         user = userRepository.save(user);
 
@@ -124,7 +126,7 @@ public class UserService {
     }
 
     public List<UserDTO> listHandlers() {
-        return userRepository.findByRoleAndStatus(Role.HANDLER, "active")
+        return userRepository.findByStatus("active")
                 .stream()
                 .map(this::toDTO)
                 .collect(Collectors.toList());
@@ -143,6 +145,12 @@ public class UserService {
         }
         if (dto.getStatus() != null) {
             user.setStatus(dto.getStatus());
+        }
+        if (dto.getGithubUsername() != null) {
+            user.setGithubUsername(dto.getGithubUsername());
+        }
+        if (dto.getGithubRepos() != null) {
+            user.setGithubRepos(dto.getGithubRepos());
         }
 
         user = userRepository.save(user);
@@ -232,6 +240,8 @@ public class UserService {
                 .status(user.getStatus())
                 .lastLoginAt(user.getLastLoginAt())
                 .createdAt(user.getCreatedAt())
+                .githubUsername(user.getGithubUsername())
+                .githubRepos(user.getGithubRepos())
                 .build();
     }
 

@@ -13,6 +13,7 @@ import org.hibernate.type.SqlTypes;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Map;
 
 @Data
@@ -83,10 +84,36 @@ public class Ticket extends BaseEntity {
     @Column(columnDefinition = "json")
     private Map<String, Object> attachments;
 
+    // GitHub Repositories (MySQL JSON: [{name, url}])
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "github_repos", columnDefinition = "json")
+    private List<Map<String, String>> githubRepos;
+
+    // Price
+    @Column(precision = 10, scale = 2)
+    private BigDecimal price;
+
+    @Column(name = "ai_price_suggestion", precision = 10, scale = 2)
+    private BigDecimal aiPriceSuggestion;
+
+    // Completion proof (GitHub link or other)
+    @Column(name = "completion_proof", columnDefinition = "TEXT")
+    private String completionProof;
+
     // Timestamps
+    @Column(name = "accepted_at")
+    private LocalDateTime acceptedAt;
+
+    @Column(name = "completed_at")
+    private LocalDateTime completedAt;
+
     @Column(name = "resolved_at")
     private LocalDateTime resolvedAt;
 
     @Column(name = "closed_at")
     private LocalDateTime closedAt;
+
+    // Rejection reason
+    @Column(name = "rejection_reason", columnDefinition = "TEXT")
+    private String rejectionReason;
 }

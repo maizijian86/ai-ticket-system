@@ -24,4 +24,7 @@ public interface AiServiceClient {
 
     @PostMapping("/api/v1/ai/suggest-reply")
     Map<String, Object> suggestReply(@RequestBody Map<String, Object> request);
+
+    @PostMapping("/api/v1/ai/recommend-price")
+    Map<String, Object> recommendPrice(@RequestBody Map<String, Object> request);
 }

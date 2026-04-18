@@ -52,9 +52,24 @@ public class TicketDTO {
     // Attachments
     private List<Map<String, String>> attachments;
 
+    // GitHub Repositories
+    private List<Map<String, String>> githubRepos;
+
+    // Price
+    private BigDecimal price;
+    private BigDecimal aiPriceSuggestion;
+
+    // Completion proof
+    private String completionProof;
+
+    // Rejection reason
+    private String rejectionReason;
+
     // Timestamps
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
+    private LocalDateTime acceptedAt;
+    private LocalDateTime completedAt;
     private LocalDateTime resolvedAt;
     private LocalDateTime closedAt;
 

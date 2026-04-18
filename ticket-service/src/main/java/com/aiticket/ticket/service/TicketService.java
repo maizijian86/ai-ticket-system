@@ -36,6 +36,7 @@ public class TicketService {
     private final TicketRepository ticketRepository;
     private final TicketCommentRepository ticketCommentRepository;
     private final AiServiceClient aiServiceClient;
+    private final ChatService chatService;
 
     @Transactional
     public TicketDTO createTicket(CreateTicketRequest request, Long creatorId, String creatorName) {
@@ -45,6 +46,9 @@ public class TicketService {
         ticket.setUrgency(request.getUrgency());
         ticket.setAttachments(request.getAttachments() != null ?
                 new java.util.HashMap<>() {{ put("files", request.getAttachments()); }} : null);
+        ticket.setGithubRepos(request.getGithubRepos());
+        ticket.setPrice(request.getPrice());
+        ticket.setAiPriceSuggestion(request.getAiPriceSuggestion());
         ticket.setCreatorId(creatorId);
         ticket.setCreatorName(creatorName);
         ticket.setStatus(TicketStatus.OPEN);
@@ -131,6 +135,9 @@ public class TicketService {
         if (request.getAttachments() != null) {
             ticket.setAttachments(new java.util.HashMap<>() {{ put("files", request.getAttachments()); }});
         }
+        if (request.getGithubRepos() != null) {
+            ticket.setGithubRepos(request.getGithubRepos());
+        }
 
         ticket = ticketRepository.save(ticket);
         log.info("Ticket updated: id={}", id);
@@ -168,7 +175,7 @@ public class TicketService {
             throw new BusinessException(400, "Ticket must be assigned before starting processing");
         }
 
-        ticket.setStatus(TicketStatus.PROCESSING);
+        ticket.setStatus(TicketStatus.ACCEPTED);
         ticket = ticketRepository.save(ticket);
 
         log.info("Ticket processing started: id={}", ticketId);
@@ -180,7 +187,7 @@ public class TicketService {
         Ticket ticket = ticketRepository.findById(ticketId)
                 .orElseThrow(() -> new BusinessException(404, "Ticket not found"));
 
-        ticket.setStatus(TicketStatus.RESOLVED);
+        ticket.setStatus(TicketStatus.COMPLETED);
         ticket.setResolvedAt(LocalDateTime.now());
         ticket = ticketRepository.save(ticket);
 
@@ -202,12 +209,84 @@ public class TicketService {
     }
 
     @Transactional
+    public TicketDTO acceptTicket(Long ticketId, Long handlerId, String handlerName) {
+        Ticket ticket = ticketRepository.findById(ticketId)
+                .orElseThrow(() -> new BusinessException(404, "Ticket not found"));
+
+        if (ticket.getStatus() != TicketStatus.OPEN) {
+            throw new BusinessException(400, "Only OPEN tickets can be accepted");
+        }
+        if (ticket.getHandlerId() != null) {
+            throw new BusinessException(400, "Ticket already has a handler");
+        }
+
+        ticket.setHandlerId(handlerId);
+        ticket.setHandlerName(handlerName);
+        ticket.setStatus(TicketStatus.ACCEPTED);
+        ticket.setAcceptedAt(LocalDateTime.now());
+        ticket = ticketRepository.save(ticket);
+
+        log.info("Ticket accepted: id={}, handler={}", ticketId, handlerName);
+        return toDTO(ticket);
+    }
+
+    @Transactional
+    public TicketDTO completeTicket(Long ticketId, CompleteTicketRequest request) {
+        Ticket ticket = ticketRepository.findById(ticketId)
+                .orElseThrow(() -> new BusinessException(404, "Ticket not found"));
+
+        if (ticket.getStatus() != TicketStatus.ACCEPTED) {
+            throw new BusinessException(400, "Only ACCEPTED tickets can be completed");
+        }
+
+        if (request.getCompletionProof() != null) {
+            ticket.setCompletionProof(request.getCompletionProof());
+        }
+        if (request.getGithubRepos() != null) {
+            ticket.setGithubRepos(request.getGithubRepos());
+        }
+        ticket.setStatus(TicketStatus.PENDING_APPROVAL);
+        ticket = ticketRepository.save(ticket);
+
+        log.info("Ticket completed (pending approval): id={}", ticketId);
+        return toDTO(ticket);
+    }
+
+    @Transactional
+    public TicketDTO approveTicket(Long ticketId, Boolean approved, String reason) {
+        Ticket ticket = ticketRepository.findById(ticketId)
+                .orElseThrow(() -> new BusinessException(404, "Ticket not found"));
+
+        if (ticket.getStatus() != TicketStatus.PENDING_APPROVAL) {
+            throw new BusinessException(400, "Only PENDING_APPROVAL tickets can be approved");
+        }
+
+        if (approved) {
+            ticket.setStatus(TicketStatus.COMPLETED);
+            ticket.setCompletedAt(LocalDateTime.now());
+            // Delete chat history after completion
+            chatService.deleteByTicketId(ticketId);
+            log.info("Ticket approved and completed: id={}", ticketId);
+        } else {
+            if (reason == null || reason.isBlank()) {
+                throw new BusinessException(400, "Rejection reason is required");
+            }
+            ticket.setStatus(TicketStatus.REJECTED);
+            ticket.setRejectionReason(reason);
+            log.info("Ticket rejected: id={}, reason={}", ticketId, reason);
+        }
+
+        ticket = ticketRepository.save(ticket);
+        return toDTO(ticket);
+    }
+
+    @Transactional
     public TicketDTO reopen(Long ticketId) {
         Ticket ticket = ticketRepository.findById(ticketId)
                 .orElseThrow(() -> new BusinessException(404, "Ticket not found"));
 
-        if (ticket.getStatus() != TicketStatus.RESOLVED && ticket.getStatus() != TicketStatus.CLOSED) {
-            throw new BusinessException(400, "Only resolved or closed tickets can be reopened");
+        if (ticket.getStatus() != TicketStatus.COMPLETED && ticket.getStatus() != TicketStatus.CLOSED) {
+            throw new BusinessException(400, "Only completed or closed tickets can be reopened");
         }
 
         ticket.setStatus(TicketStatus.OPEN);
@@ -245,11 +324,11 @@ public class TicketService {
 
     public TicketStatsDTO getStats() {
         long open = ticketRepository.countByStatusAndDeletedAtIsNull(TicketStatus.OPEN);
-        long processing = ticketRepository.countByStatusAndDeletedAtIsNull(TicketStatus.PROCESSING);
-        long resolved = ticketRepository.countByStatusAndDeletedAtIsNull(TicketStatus.RESOLVED);
-        long closed = ticketRepository.countByStatusAndDeletedAtIsNull(TicketStatus.CLOSED);
+        long accepted = ticketRepository.countByStatusAndDeletedAtIsNull(TicketStatus.ACCEPTED);
+        long pendingApproval = ticketRepository.countByStatusAndDeletedAtIsNull(TicketStatus.PENDING_APPROVAL);
+        long completed = ticketRepository.countByStatusAndDeletedAtIsNull(TicketStatus.COMPLETED);
 
-        return new TicketStatsDTO(open, processing, resolved, closed);
+        return new TicketStatsDTO(open, accepted, pendingApproval, completed);
     }
 
     private Specification<Ticket> buildSpecification(TicketQueryRequest query) {
@@ -315,6 +394,14 @@ public class TicketService {
         if (ticket.getAttachments() != null && ticket.getAttachments().containsKey("files")) {
             builder.attachments((List) ticket.getAttachments().get("files"));
         }
+
+        builder.githubRepos(ticket.getGithubRepos())
+                .price(ticket.getPrice())
+                .aiPriceSuggestion(ticket.getAiPriceSuggestion())
+                .completionProof(ticket.getCompletionProof())
+                .rejectionReason(ticket.getRejectionReason())
+                .acceptedAt(ticket.getAcceptedAt())
+                .completedAt(ticket.getCompletedAt());
 
         if (includeComments) {
             List<CommentDTO> comments = ticketCommentRepository

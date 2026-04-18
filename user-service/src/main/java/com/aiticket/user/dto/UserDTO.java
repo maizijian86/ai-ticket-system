@@ -7,6 +7,8 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Map;
 
 @Data
 @Builder
@@ -21,4 +23,7 @@ public class UserDTO {
     private String status;
     private LocalDateTime lastLoginAt;
     private LocalDateTime createdAt;
+
+    private String githubUsername;
+    private List<Map<String, String>> githubRepos;
 }

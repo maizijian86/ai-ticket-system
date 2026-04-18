@@ -24,4 +24,6 @@ public class UpdateTicketRequest {
     private Urgency urgency;
 
     private List<Map<String, String>> attachments;
+
+    private List<Map<String, String>> githubRepos;
 }

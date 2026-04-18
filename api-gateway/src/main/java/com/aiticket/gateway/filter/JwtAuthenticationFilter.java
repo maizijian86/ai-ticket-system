@@ -3,7 +3,8 @@ package com.aiticket.gateway.filter;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cloud.gateway.filter.GatewayFilterChain;
 import org.springframework.cloud.gateway.filter.GlobalFilter;
@@ -19,9 +20,10 @@ import reactor.core.publisher.Mono;
 import javax.crypto.SecretKey;
 import java.nio.charset.StandardCharsets;
 
-@Slf4j
 @Component
 public class JwtAuthenticationFilter implements GlobalFilter, Ordered {
+
+    private static final Logger log = LoggerFactory.getLogger(JwtAuthenticationFilter.class);
 
     @Value("${jwt.secret:aiticket-jwt-secret-key-change-in-production-min-256-bits}")
     private String jwtSecret;
@@ -29,6 +31,8 @@ public class JwtAuthenticationFilter implements GlobalFilter, Ordered {
     private static final String[] WHITE_LIST = {
             "/api/v1/auth/register",
             "/api/v1/auth/login",
+            "/api/v1/tickets",
+            "/api/v1/tickets/",
             "/health",
             "/actuator/health"
     };

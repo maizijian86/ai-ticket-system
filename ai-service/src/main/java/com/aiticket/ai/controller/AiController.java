@@ -57,6 +57,16 @@ public class AiController {
         ));
     }
 
+    @PostMapping("/recommend-price")
+    public Result<RecommendPriceResponse> recommendPrice(@Valid @RequestBody RecommendPriceRequest request) {
+        return Result.success(aiService.recommendPrice(
+                request.getContent(),
+                request.getCategory(),
+                request.getPriority(),
+                request.getUrgency()
+        ));
+    }
+
     @PostMapping("/embedding")
     public Result<EmbeddingResponse> generateEmbedding(@Valid @RequestBody EmbeddingRequest request) {
         return Result.success(aiService.generateEmbedding(request.getText()));

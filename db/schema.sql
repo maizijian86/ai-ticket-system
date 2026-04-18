@@ -15,6 +15,11 @@ CREATE TABLE users (
     role            VARCHAR(20) DEFAULT 'USER',
     status          VARCHAR(20) DEFAULT 'active',
     last_login_at   DATETIME,
+
+    -- GitHub info (optional)
+    github_username VARCHAR(100),
+    github_repos    JSON,
+
     created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     deleted_at      DATETIME,
@@ -93,11 +98,26 @@ CREATE TABLE ticket (
     -- Attachments (JSON array)
     attachments     JSON,
 
+    -- GitHub repositories (JSON array: [{name, url}])
+    github_repos    JSON,
+
+    -- Price
+    price           DECIMAL(10,2),
+    ai_price_suggestion DECIMAL(10,2),
+
+    -- Completion proof (GitHub link or other)
+    completion_proof TEXT,
+
     -- Timestamps
     created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    accepted_at     DATETIME,
+    completed_at    DATETIME,
     resolved_at     DATETIME,
     closed_at       DATETIME,
+
+    -- Rejection reason (when user rejects completion)
+    rejection_reason TEXT,
 
     -- Soft delete
     deleted_at      DATETIME,
@@ -133,6 +153,22 @@ CREATE TABLE ticket_comment (
     FOREIGN KEY (ticket_id) REFERENCES ticket(id) ON DELETE CASCADE,
     INDEX idx_ticket_comment_ticket_id (ticket_id),
     INDEX idx_ticket_comment_created (created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Ticket chat (private messaging between user and handler)
+CREATE TABLE ticket_chat (
+    id              BIGINT AUTO_INCREMENT PRIMARY KEY,
+    ticket_id       BIGINT NOT NULL,
+    sender_id       BIGINT NOT NULL,
+    sender_name     VARCHAR(100),
+    sender_role     VARCHAR(20),  -- USER or HANDLER
+    content         TEXT NOT NULL,
+    created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+    deleted_at      DATETIME DEFAULT NULL,
+
+    FOREIGN KEY (ticket_id) REFERENCES ticket(id) ON DELETE CASCADE,
+    INDEX idx_ticket_chat_ticket_id (ticket_id),
+    INDEX idx_ticket_chat_created (created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ============================================

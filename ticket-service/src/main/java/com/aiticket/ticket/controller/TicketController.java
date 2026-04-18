@@ -3,6 +3,7 @@ package com.aiticket.ticket.controller;
 import com.aiticket.common.dto.PageResult;
 import com.aiticket.common.dto.Result;
 import com.aiticket.ticket.dto.*;
+import com.aiticket.ticket.service.ChatService;
 import com.aiticket.ticket.service.TicketService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -16,6 +17,7 @@ import java.util.List;
 public class TicketController {
 
     private final TicketService ticketService;
+    private final ChatService chatService;
 
     @PostMapping
     public Result<TicketDTO> createTicket(@Valid @RequestBody CreateTicketRequest request,
@@ -105,6 +107,48 @@ public class TicketController {
     @GetMapping("/{id}/comments")
     public Result<List<CommentDTO>> getComments(@PathVariable Long id) {
         return Result.success(ticketService.getComments(id));
+    }
+
+    // Accept ticket (handler picks up)
+    @PostMapping("/{id}/accept")
+    public Result<TicketDTO> acceptTicket(@PathVariable Long id,
+                                          @RequestHeader(value = "X-User-Id", required = false) Long userId,
+                                          @RequestHeader(value = "X-User-Name", required = false) String username) {
+        if (userId == null) userId = 1L;
+        if (username == null) username = "anonymous";
+        return Result.success(ticketService.acceptTicket(id, userId, username));
+    }
+
+    // Complete ticket (handler submits for approval)
+    @PostMapping("/{id}/complete")
+    public Result<TicketDTO> completeTicket(@PathVariable Long id,
+                                            @Valid @RequestBody CompleteTicketRequest request) {
+        return Result.success(ticketService.completeTicket(id, request));
+    }
+
+    // Approve or reject completion (user confirms)
+    @PostMapping("/{id}/approve")
+    public Result<TicketDTO> approveTicket(@PathVariable Long id,
+                                           @Valid @RequestBody ApproveTicketRequest request) {
+        return Result.success(ticketService.approveTicket(id, request.getApproved(), request.getReason()));
+    }
+
+    // Chat endpoints
+    @GetMapping("/{id}/chat")
+    public Result<List<ChatMessageDTO>> getChatHistory(@PathVariable Long id) {
+        return Result.success(chatService.getChatHistory(id));
+    }
+
+    @PostMapping("/{id}/chat")
+    public Result<ChatMessageDTO> sendChatMessage(@PathVariable Long id,
+                                                  @Valid @RequestBody SendChatRequest request,
+                                                  @RequestHeader(value = "X-User-Id", required = false) Long userId,
+                                                  @RequestHeader(value = "X-User-Name", required = false) String username,
+                                                  @RequestHeader(value = "X-User-Role", required = false) String role) {
+        if (userId == null) userId = 1L;
+        if (username == null) username = "anonymous";
+        if (role == null) role = "USER";
+        return Result.success(chatService.sendMessage(id, userId, username, role, request.getContent()));
     }
 
     @GetMapping("/stats")
