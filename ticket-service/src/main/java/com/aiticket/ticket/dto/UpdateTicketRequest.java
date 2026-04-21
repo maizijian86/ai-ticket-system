@@ -6,6 +6,7 @@ import com.aiticket.common.enums.Urgency;
 import jakarta.validation.constraints.Size;
 import lombok.Data;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
 
@@ -26,4 +27,6 @@ public class UpdateTicketRequest {
     private List<Map<String, String>> attachments;
 
     private List<Map<String, String>> githubRepos;
+
+    private BigDecimal price;
 }

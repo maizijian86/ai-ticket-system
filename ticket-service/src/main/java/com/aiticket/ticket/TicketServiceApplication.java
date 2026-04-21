@@ -10,9 +10,9 @@ import org.springframework.data.jpa.repository.config.EnableJpaAuditing;
 @EnableJpaAuditing
 @EnableFeignClients
 @ComponentScan(basePackages = {"com.aiticket.ticket", "com.aiticket.common"})
-public class AiTicketServiceApplication {
+public class TicketServiceApplication {
 
     public static void main(String[] args) {
-        SpringApplication.run(AiTicketServiceApplication.class, args);
+        SpringApplication.run(TicketServiceApplication.class, args);
     }
 }

@@ -69,7 +69,18 @@ public class TicketService {
         return toDTO(ticket, true);
     }
 
-    public PageResult<TicketDTO> listTickets(TicketQueryRequest query) {
+    public PageResult<TicketDTO> listTickets(TicketQueryRequest query, Long userId, boolean isAdmin) {
+        // ADMIN: 查询所有；普通用户: 只查自己的
+        // 只有 ACCEPTED/COMPLETED 才按 handlerId 过滤；OPEN 是全局的（待接单）
+        // includeAll=true 时跳过 handlerId 过滤
+        if (!isAdmin && query.getHandlerId() == null && query.getCreatorId() == null
+                && !Boolean.TRUE.equals(query.getIncludeAll())) {
+            TicketStatus status = query.getStatus();
+            if (status == TicketStatus.ACCEPTED || status == TicketStatus.COMPLETED) {
+                query.setHandlerId(userId);
+            }
+        }
+
         Specification<Ticket> spec = buildSpecification(query);
         PageRequest pageRequest = PageRequest.of(
                 query.getPage() - 1,
@@ -88,6 +99,28 @@ public class TicketService {
     public PageResult<TicketDTO> listMyTickets(Long userId, int pageNum, int pageSize) {
         PageRequest pageRequest = PageRequest.of(pageNum - 1, pageSize, Sort.by(Sort.Direction.DESC, "createdAt"));
         Page<Ticket> ticketPage = ticketRepository.findByCreatorIdAndDeletedAtIsNull(userId, pageRequest);
+
+        List<TicketDTO> dtos = ticketPage.getContent().stream()
+                .map(t -> toDTO(t, false))
+                .collect(Collectors.toList());
+
+        return PageResult.of(ticketPage.getTotalElements(), pageNum, pageSize, dtos);
+    }
+
+    public PageResult<TicketDTO> listMyAcceptedTickets(Long userId, int pageNum, int pageSize) {
+        PageRequest pageRequest = PageRequest.of(pageNum - 1, pageSize, Sort.by(Sort.Direction.DESC, "acceptedAt"));
+        Page<Ticket> ticketPage = ticketRepository.findByHandlerIdAndDeletedAtIsNull(userId, pageRequest);
+
+        List<TicketDTO> dtos = ticketPage.getContent().stream()
+                .map(t -> toDTO(t, false))
+                .collect(Collectors.toList());
+
+        return PageResult.of(ticketPage.getTotalElements(), pageNum, pageSize, dtos);
+    }
+
+    public PageResult<TicketDTO> listCompletedTickets(int pageNum, int pageSize) {
+        PageRequest pageRequest = PageRequest.of(pageNum - 1, pageSize, Sort.by(Sort.Direction.DESC, "completedAt"));
+        Page<Ticket> ticketPage = ticketRepository.findByStatusAndDeletedAtIsNull(TicketStatus.COMPLETED, pageRequest);
 
         List<TicketDTO> dtos = ticketPage.getContent().stream()
                 .map(t -> toDTO(t, false))
@@ -137,6 +170,9 @@ public class TicketService {
         }
         if (request.getGithubRepos() != null) {
             ticket.setGithubRepos(request.getGithubRepos());
+        }
+        if (request.getPrice() != null) {
+            ticket.setPrice(request.getPrice());
         }
 
         ticket = ticketRepository.save(ticket);
@@ -322,13 +358,25 @@ public class TicketService {
                 .collect(Collectors.toList());
     }
 
-    public TicketStatsDTO getStats() {
-        long open = ticketRepository.countByStatusAndDeletedAtIsNull(TicketStatus.OPEN);
-        long accepted = ticketRepository.countByStatusAndDeletedAtIsNull(TicketStatus.ACCEPTED);
-        long pendingApproval = ticketRepository.countByStatusAndDeletedAtIsNull(TicketStatus.PENDING_APPROVAL);
-        long completed = ticketRepository.countByStatusAndDeletedAtIsNull(TicketStatus.COMPLETED);
+    public TicketStatsDTO getStats(Long handlerId, Long excludeCreatorId) {
+        // OPEN: exclude own tickets if excludeCreatorId provided
+        long open = (excludeCreatorId != null)
+                ? ticketRepository.countOpenExcludingCreator(excludeCreatorId)
+                : ticketRepository.countByStatusAndDeletedAtIsNull(TicketStatus.OPEN);
 
-        return new TicketStatsDTO(open, accepted, pendingApproval, completed);
+        if (handlerId != null) {
+            // Stats for specific handler's accepted tickets
+            long accepted = ticketRepository.countByHandlerIdAndStatusAndDeletedAtIsNull(handlerId, TicketStatus.ACCEPTED);
+            long pendingApproval = ticketRepository.countByHandlerIdAndStatusAndDeletedAtIsNull(handlerId, TicketStatus.PENDING_APPROVAL);
+            long completed = ticketRepository.countByHandlerIdAndStatusAndDeletedAtIsNull(handlerId, TicketStatus.COMPLETED);
+            return new TicketStatsDTO(open, accepted, pendingApproval, completed);
+        } else {
+            // Global stats
+            long accepted = ticketRepository.countByStatusAndDeletedAtIsNull(TicketStatus.ACCEPTED);
+            long pendingApproval = ticketRepository.countByStatusAndDeletedAtIsNull(TicketStatus.PENDING_APPROVAL);
+            long completed = ticketRepository.countByStatusAndDeletedAtIsNull(TicketStatus.COMPLETED);
+            return new TicketStatsDTO(open, accepted, pendingApproval, completed);
+        }
     }
 
     private Specification<Ticket> buildSpecification(TicketQueryRequest query) {
@@ -339,6 +387,9 @@ public class TicketService {
 
             if (query.getCreatorId() != null) {
                 predicates.add(criteriaBuilder.equal(root.get("creatorId"), query.getCreatorId()));
+            }
+            if (query.getExcludeCreatorId() != null) {
+                predicates.add(criteriaBuilder.notEqual(root.get("creatorId"), query.getExcludeCreatorId()));
             }
             if (query.getHandlerId() != null) {
                 predicates.add(criteriaBuilder.equal(root.get("handlerId"), query.getHandlerId()));

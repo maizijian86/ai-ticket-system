@@ -34,8 +34,12 @@ public class TicketController {
     }
 
     @GetMapping
-    public Result<PageResult<TicketDTO>> listTickets(TicketQueryRequest query) {
-        return Result.success(ticketService.listTickets(query));
+    public Result<PageResult<TicketDTO>> listTickets(TicketQueryRequest query,
+            @RequestHeader(value = "X-User-Id", required = false) Long userId,
+            @RequestHeader(value = "X-User-Role", required = false) String role) {
+        if (userId == null) userId = 1L;
+        if (role == null) role = "USER";
+        return Result.success(ticketService.listTickets(query, userId, "ADMIN".equals(role)));
     }
 
     @GetMapping("/my")
@@ -54,6 +58,22 @@ public class TicketController {
             @RequestHeader(value = "X-User-Id", required = false) Long userId) {
         if (userId == null) userId = 1L;
         return Result.success(ticketService.listPendingTickets(userId, page, pageSize));
+    }
+
+    @GetMapping("/my/accepted")
+    public Result<PageResult<TicketDTO>> listMyAcceptedTickets(
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(defaultValue = "10") int pageSize,
+            @RequestHeader(value = "X-User-Id", required = false) Long userId) {
+        if (userId == null) userId = 1L;
+        return Result.success(ticketService.listMyAcceptedTickets(userId, page, pageSize));
+    }
+
+    @GetMapping("/completed")
+    public Result<PageResult<TicketDTO>> listCompletedTickets(
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(defaultValue = "10") int pageSize) {
+        return Result.success(ticketService.listCompletedTickets(page, pageSize));
     }
 
     @PutMapping("/{id}")
@@ -152,7 +172,10 @@ public class TicketController {
     }
 
     @GetMapping("/stats")
-    public Result<TicketStatsDTO> getStats() {
-        return Result.success(ticketService.getStats());
+    public Result<TicketStatsDTO> getStats(
+            @RequestHeader(value = "X-User-Id", required = false) Long userId,
+            @RequestParam(required = false) Long excludeCreatorId) {
+        if (userId == null) userId = 1L;
+        return Result.success(ticketService.getStats(userId, excludeCreatorId));
     }
 }

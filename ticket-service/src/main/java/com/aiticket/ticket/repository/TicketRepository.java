@@ -41,6 +41,10 @@ public interface TicketRepository extends JpaRepository<Ticket, Long>, JpaSpecif
     // Count by status
     long countByStatusAndDeletedAtIsNull(TicketStatus status);
 
+    // Count OPEN excluding creator
+    @Query("SELECT COUNT(t) FROM Ticket t WHERE t.status = 'OPEN' AND t.deletedAt IS NULL AND t.creatorId != :creatorId")
+    long countOpenExcludingCreator(@Param("creatorId") Long creatorId);
+
     // Count by handler
     long countByHandlerIdAndStatusAndDeletedAtIsNull(Long handlerId, TicketStatus status);
 

@@ -31,8 +31,6 @@ public class JwtAuthenticationFilter implements GlobalFilter, Ordered {
     private static final String[] WHITE_LIST = {
             "/api/v1/auth/register",
             "/api/v1/auth/login",
-            "/api/v1/tickets",
-            "/api/v1/tickets/",
             "/health",
             "/actuator/health"
     };

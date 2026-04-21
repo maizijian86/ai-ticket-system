@@ -6,9 +6,9 @@ import org.springframework.context.annotation.ComponentScan;
 
 @SpringBootApplication
 @ComponentScan(basePackages = {"com.aiticket.ai", "com.aiticket.common"})
-public class AiTicketServiceApplication {
+public class AiServiceApplication {
 
     public static void main(String[] args) {
-        SpringApplication.run(AiTicketServiceApplication.class, args);
+        SpringApplication.run(AiServiceApplication.class, args);
     }
 }
