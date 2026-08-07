@@ -38,7 +38,18 @@ file:
 ai-service:
   url: http://localhost:8083
 
+# LangChain4j配置
+langchain4j:
+  open-ai:
+    chat-model:
+      api-key: sk-sfs0me180haxrdja3fl3ma9uyqtv00h8h6xu23vu6ko0ig4e
+      model-name: mimo-v2.5
+      base-url: https://api.xiaomimimo.com/anthropic
+      log-requests: true
+      log-responses: true
+
 # Logging
 logging:
   level:
     com.aiticket: DEBUG
+    dev.langchain4j: DEBUG

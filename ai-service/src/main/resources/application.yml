@@ -25,14 +25,29 @@ spring:
       host: localhost
       port: 6379
 
-# AI Configuration
+# LangChain4j配置
+langchain4j:
+  open-ai:
+    chat-model:
+      api-key: sk-sfs0me180haxrdja3fl3ma9uyqtv00h8h6xu23vu6ko0ig4e
+      model-name: mimo-v2.5
+      base-url: https://api.xiaomimimo.com/anthropic
+      log-requests: true
+      log-responses: true
+    streaming-chat-model:
+      api-key: sk-sfs0me180haxrdja3fl3ma9uyqtv00h8h6xu23vu6ko0ig4e
+      model-name: mimo-v2.5
+      base-url: https://api.xiaomimimo.com/anthropic
+
+# 旧AI配置（保留兼容）
 ai:
   minimax:
-    api-key: sk-cp-EExKvzin8rcRxUO4RbT-H4Di_GOH3TJz2szF--BEkF3auqyAH6LT-00veAwtT920rAyzFo_x2lMhq0G90WPA6dyh5YyGYYTbpQagcJ_U4ySey1lEDHT9xJM
-    model: MiniMax-M2.7
-    base-url: https://api.minimaxi.com
+    api-key: sk-sfs0me180haxrdja3fl3ma9uyqtv00h8h6xu23vu6ko0ig4e
+    model: mimo-v2.5
+    base-url: https://api.xiaomimimo.com/anthropic
 
 # Logging
 logging:
   level:
     com.aiticket: DEBUG
+    dev.langchain4j: DEBUG

@@ -54,10 +54,15 @@ public class TicketService {
         ticket.setStatus(TicketStatus.OPEN);
         ticket.setPriority(Priority.P2);
 
-        ticket = ticketRepository.save(ticket);
+        // 开发者需求字段
+        ticket.setProjectType(request.getProjectType());
+        ticket.setTechStack(request.getTechStack());
+        ticket.setBudget(request.getBudget());
+        ticket.setDeadline(request.getDeadline());
+        ticket.setDetailedRequirements(request.getDetailedRequirements());
+        ticket.setIsVisible(true);
 
-        // AI analysis removed - only manual "AI生成标题" button triggers AI
-        // Previously auto-called: classify, priority, recommendHandler, generateSummary
+        ticket = ticketRepository.save(ticket);
 
         log.info("Ticket created: id={}, title={}, creator={}", ticket.getId(), ticket.getTitle(), creatorName);
         return toDTO(ticket);
@@ -385,6 +390,14 @@ public class TicketService {
 
             predicates.add(criteriaBuilder.isNull(root.get("deletedAt")));
 
+            // 默认只显示在大厅的工单（isVisible=true或null）
+            if (!Boolean.FALSE.equals(query.getIncludeAll())) {
+                predicates.add(criteriaBuilder.or(
+                        criteriaBuilder.equal(root.get("isVisible"), true),
+                        criteriaBuilder.isNull(root.get("isVisible"))
+                ));
+            }
+
             if (query.getCreatorId() != null) {
                 predicates.add(criteriaBuilder.equal(root.get("creatorId"), query.getCreatorId()));
             }
@@ -453,6 +466,24 @@ public class TicketService {
                 .rejectionReason(ticket.getRejectionReason())
                 .acceptedAt(ticket.getAcceptedAt())
                 .completedAt(ticket.getCompletedAt());
+
+        // 开发者需求字段
+        builder.techStack(ticket.getTechStack())
+                .projectType(ticket.getProjectType())
+                .budget(ticket.getBudget())
+                .deadline(ticket.getDeadline())
+                .detailedRequirements(ticket.getDetailedRequirements());
+
+        // AI生成内容
+        builder.aiPrd(ticket.getAiPrd())
+                .aiTechSuggestion(ticket.getAiTechSuggestion())
+                .aiTaskBreakdown(ticket.getAiTaskBreakdown())
+                .aiEstimatedHours(ticket.getAiEstimatedHours());
+
+        // 接单状态
+        builder.acceptedBy(ticket.getAcceptedBy())
+                .acceptedByName(ticket.getAcceptedByName())
+                .isVisible(ticket.getIsVisible());
 
         if (includeComments) {
             List<CommentDTO> comments = ticketCommentRepository

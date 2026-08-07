@@ -24,10 +24,12 @@ spring:
     redis:
       host: localhost
       port: 6379
+      database: 0
 
 jwt:
   secret: aiticket-jwt-secret-key-change-in-production-min-256-bits
-  expiration: 604800000  # 7 days
+  access-token-expiration: 1800000  # 30 minutes
+  refresh-token-expiration: 604800000  # 7 days
 
 logging:
   level:

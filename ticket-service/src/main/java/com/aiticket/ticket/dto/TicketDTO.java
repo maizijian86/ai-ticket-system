@@ -65,6 +65,48 @@ public class TicketDTO {
     // Rejection reason
     private String rejectionReason;
 
+    // ==================== 开发者需求字段 ====================
+
+    // 技术栈
+    private String techStack;
+
+    // 项目类型
+    private String projectType;
+
+    // 预算
+    private BigDecimal budget;
+
+    // 截止日期
+    private LocalDateTime deadline;
+
+    // 详细需求描述
+    private String detailedRequirements;
+
+    // ==================== AI生成内容 ====================
+
+    // AI生成的PRD文档
+    private String aiPrd;
+
+    // AI技术栈建议
+    private String aiTechSuggestion;
+
+    // AI任务拆解
+    private String aiTaskBreakdown;
+
+    // AI工时估算
+    private Integer aiEstimatedHours;
+
+    // ==================== 接单状态 ====================
+
+    // 接单者ID
+    private Long acceptedBy;
+
+    // 接单者姓名
+    private String acceptedByName;
+
+    // 是否在大厅显示
+    private Boolean isVisible;
+
     // Timestamps
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;

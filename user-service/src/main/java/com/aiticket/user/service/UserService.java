@@ -32,6 +32,7 @@ public class UserService {
     private final UserSkillRepository userSkillRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtUtil jwtUtil;
+    private final RefreshTokenService refreshTokenService;
 
     @Transactional
     public UserDTO register(RegisterRequest request) {
@@ -83,17 +84,58 @@ public class UserService {
         user.setLastLoginAt(LocalDateTime.now());
         userRepository.save(user);
 
-        String token = jwtUtil.generateToken(user.getId(), user.getUsername(), user.getRole().name());
+        // 生成双Token
+        String accessToken = jwtUtil.generateAccessToken(user.getId(), user.getUsername(), user.getRole().name());
+        String refreshToken = jwtUtil.generateRefreshToken(user.getId(), user.getUsername());
+
+        // 保存Refresh Token到Redis
+        refreshTokenService.saveRefreshToken(user.getId(), refreshToken);
 
         log.info("User logged in: {}", user.getUsername());
 
         return new LoginResponse(
-                token,
+                accessToken,
+                refreshToken,
                 user.getId(),
                 user.getUsername(),
                 user.getRole().name(),
                 user.getNickname()
         );
+    }
+
+    /**
+     * 刷新Token
+     */
+    public LoginResponse refreshToken(Long userId, String refreshToken) {
+        // 验证Refresh Token
+        if (!refreshTokenService.validateRefreshToken(userId, refreshToken)) {
+            throw new BusinessException(401, "Invalid or expired refresh token");
+        }
+
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new BusinessException(404, "User not found"));
+
+        // 生成新的Access Token
+        String newAccessToken = jwtUtil.generateAccessToken(user.getId(), user.getUsername(), user.getRole().name());
+
+        log.info("Token refreshed for user: {}", user.getUsername());
+
+        return new LoginResponse(
+                newAccessToken,
+                refreshToken,
+                user.getId(),
+                user.getUsername(),
+                user.getRole().name(),
+                user.getNickname()
+        );
+    }
+
+    /**
+     * 用户登出
+     */
+    public void logout(Long userId) {
+        refreshTokenService.deleteRefreshToken(userId);
+        log.info("User logged out: userId={}", userId);
     }
 
     public UserDTO getUserById(Long id) {

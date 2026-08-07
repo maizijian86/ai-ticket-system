@@ -116,4 +116,58 @@ public class Ticket extends BaseEntity {
     // Rejection reason
     @Column(name = "rejection_reason", columnDefinition = "TEXT")
     private String rejectionReason;
+
+    // ==================== 开发者需求字段 ====================
+
+    // 技术栈（如：Spring Boot, Vue, MyBatis等）
+    @Column(name = "tech_stack", length = 500)
+    private String techStack;
+
+    // 项目类型（JavaWeb/Python/前端/全栈/移动端）
+    @Column(name = "project_type", length = 50)
+    private String projectType;
+
+    // 预算
+    @Column(precision = 10, scale = 2)
+    private BigDecimal budget;
+
+    // 截止日期
+    @Column(name = "deadline")
+    private LocalDateTime deadline;
+
+    // 详细需求描述
+    @Column(name = "detailed_requirements", columnDefinition = "TEXT")
+    private String detailedRequirements;
+
+    // ==================== AI生成内容 ====================
+
+    // AI生成的PRD文档
+    @Column(name = "ai_prd", columnDefinition = "TEXT")
+    private String aiPrd;
+
+    // AI技术栈建议
+    @Column(name = "ai_tech_suggestion", columnDefinition = "TEXT")
+    private String aiTechSuggestion;
+
+    // AI任务拆解
+    @Column(name = "ai_task_breakdown", columnDefinition = "TEXT")
+    private String aiTaskBreakdown;
+
+    // AI工时估算
+    @Column(name = "ai_estimated_hours")
+    private Integer aiEstimatedHours;
+
+    // ==================== 接单状态 ====================
+
+    // 接单者ID
+    @Column(name = "accepted_by")
+    private Long acceptedBy;
+
+    // 接单者姓名
+    @Column(name = "accepted_by_name", length = 100)
+    private String acceptedByName;
+
+    // 是否在大厅显示（接单后隐藏）
+    @Column(name = "is_visible")
+    private Boolean isVisible = true;
 }

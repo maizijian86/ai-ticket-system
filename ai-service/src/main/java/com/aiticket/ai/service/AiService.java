@@ -72,7 +72,7 @@ public class AiService {
         log.info("AI classifying content, length: {}", content.length());
 
         try {
-            MiniMaxRequest request = MiniMaxRequest.builder()
+            MiniMaxRequest request = AiRequest.builder()
                     .model(modelName)
                     .maxTokens(1000)
                     .messages(List.of(
@@ -80,7 +80,7 @@ public class AiService {
                     ))
                     .build();
 
-            String response = callMiniMax(request);
+            String response = callAiApi(request);
 
             ClassifyResult result = parseClassificationResponse(response);
             if (result != null && result.isValid()) {
@@ -103,7 +103,7 @@ public class AiService {
         log.info("AI evaluating priority for content, length: {}", content.length());
 
         try {
-            MiniMaxRequest request = MiniMaxRequest.builder()
+            MiniMaxRequest request = AiRequest.builder()
                     .model(modelName)
                     .maxTokens(1000)
                     .messages(List.of(
@@ -111,7 +111,7 @@ public class AiService {
                     ))
                     .build();
 
-            String response = callMiniMax(request);
+            String response = callAiApi(request);
 
             PriorityResult result = parsePriorityResponse(response);
             if (result != null && result.isValid()) {
@@ -132,7 +132,7 @@ public class AiService {
         log.info("AI recommending handler for content, category: {}", category);
 
         try {
-            MiniMaxRequest request = MiniMaxRequest.builder()
+            MiniMaxRequest request = AiRequest.builder()
                     .model(modelName)
                     .maxTokens(500)
                     .messages(List.of(
@@ -140,7 +140,7 @@ public class AiService {
                     ))
                     .build();
 
-            String response = callMiniMax(request);
+            String response = callAiApi(request);
 
             return parseRecommendHandlerResponse(response);
         } catch (Exception e) {
@@ -153,7 +153,7 @@ public class AiService {
         log.info("AI generating summary for content, length: {}", content.length());
 
         try {
-            MiniMaxRequest request = MiniMaxRequest.builder()
+            MiniMaxRequest request = AiRequest.builder()
                     .model(modelName)
                     .maxTokens(1500)
                     .messages(List.of(
@@ -161,7 +161,7 @@ public class AiService {
                     ))
                     .build();
 
-            String response = callMiniMax(request);
+            String response = callAiApi(request);
 
             return parseSummaryResponse(response);
         } catch (Exception e) {
@@ -174,7 +174,7 @@ public class AiService {
         log.info("AI generating title for content, length: {}", content.length());
 
         try {
-            MiniMaxRequest request = MiniMaxRequest.builder()
+            MiniMaxRequest request = AiRequest.builder()
                     .model(modelName)
                     .maxTokens(200)
                     .messages(List.of(
@@ -182,7 +182,7 @@ public class AiService {
                     ))
                     .build();
 
-            String response = callMiniMax(request);
+            String response = callAiApi(request);
 
             return GenerateTitleResponse.builder()
                     .title(response.trim())
@@ -201,7 +201,7 @@ public class AiService {
         try {
             List<KnowledgeSearchResult> relevantDocs = retrieveRelevantKnowledge(question);
 
-            MiniMaxRequest request = MiniMaxRequest.builder()
+            MiniMaxRequest request = AiRequest.builder()
                     .model(modelName)
                     .maxTokens(2000)
                     .messages(List.of(
@@ -209,7 +209,7 @@ public class AiService {
                     ))
                     .build();
 
-            String response = callMiniMax(request);
+            String response = callAiApi(request);
 
             return SuggestReplyResponse.builder()
                     .suggestedReply(response.trim())
@@ -228,7 +228,7 @@ public class AiService {
         log.info("AI recommending price for content, category: {}, priority: {}", category, priority);
 
         try {
-            MiniMaxRequest request = MiniMaxRequest.builder()
+            MiniMaxRequest request = AiRequest.builder()
                     .model(modelName)
                     .maxTokens(500)
                     .messages(List.of(
@@ -236,7 +236,7 @@ public class AiService {
                     ))
                     .build();
 
-            String response = callMiniMax(request);
+            String response = callAiApi(request);
 
             return parseRecommendPriceResponse(response);
         } catch (Exception e) {
@@ -320,9 +320,9 @@ public class AiService {
 
     // ==================== Private Helper Methods ====================
 
-    private String callMiniMax(MiniMaxRequest request) {
+    private String callAiApi(AiRequest request) {
         if (apiKey == null || apiKey.isBlank()) {
-            throw new RuntimeException("MINIMAX_API_KEY is not configured");
+            throw new RuntimeException("AI_API_KEY is not configured");
         }
 
         Map<String, Object> body = new HashMap<>();
@@ -330,18 +330,15 @@ public class AiService {
         body.put("max_tokens", request.getMaxTokens());
         body.put("messages", request.getMessages());
 
-        if (request.getTemperature() != null) {
-            body.put("temperature", request.getTemperature());
-        }
-
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
-        headers.set("Authorization", "Bearer " + apiKey);
+        headers.set("x-api-key", apiKey);
+        headers.set("anthropic-version", "2023-06-01");
 
         HttpEntity<Map<String, Object>> entity = new HttpEntity<>(body, headers);
-        String url = baseUrl + "/v1/text/chatcompletion_v2";
+        String url = baseUrl + "/v1/messages";
 
-        log.info("Calling MiniMax API: {} with model: {}", url, request.getModel());
+        log.info("Calling AI API: {} with model: {}", url, request.getModel());
 
         ResponseEntity<String> response = restTemplate.exchange(
                 url,
@@ -350,12 +347,12 @@ public class AiService {
                 String.class
         );
 
-        return parseMiniMaxResponse(response.getBody());
+        return parseAiResponse(response.getBody());
     }
 
-    private String parseMiniMaxResponse(String response) {
-        // Parse OpenAI-style response: {"choices": [{"message": {"content": "..."}}]}
-        Pattern textPattern = Pattern.compile("\"content\"\\s*:\\s*\"([^\"\\\\]*(?:\\\\.[^\"\\\\]*)*)\"");
+    private String parseAiResponse(String response) {
+        // Parse Anthropic-style response: {"content": [{"type": "text", "text": "..."}]}
+        Pattern textPattern = Pattern.compile("\"text\"\\s*:\\s*\"([^\"\\\\]*(?:\\\\.[^\"\\\\]*)*)\"");
         Matcher matcher = textPattern.matcher(response);
 
         if (matcher.find()) {
@@ -365,7 +362,7 @@ public class AiService {
                     .replace("\\\\", "\\");
         }
 
-        throw new RuntimeException("Failed to parse MiniMax response: " + response);
+        throw new RuntimeException("Failed to parse AI response: " + response);
     }
 
     private List<KnowledgeSearchResult> retrieveRelevantKnowledge(String query) {
@@ -767,7 +764,7 @@ public class AiService {
     // Inner classes
     @Data
     @lombok.Builder
-    private static class MiniMaxRequest {
+    private static class AiRequest {
         private String model;
         private int maxTokens;
         private List<Map<String, Object>> messages;
@@ -798,4 +795,406 @@ public class AiService {
         private final double relevanceScore;
         private final String sourceType;
     }
+
+    // ==================== Project Analysis Methods (New) ====================
+
+    /**
+     * 分析项目需求，生成PRD文档
+     */
+    public ProjectAnalysisResult analyzeProject(String projectDescription) {
+        log.info("AI analyzing project description, length: {}", projectDescription.length());
+
+        try {
+            MiniMaxRequest request = AiRequest.builder()
+                    .model(modelName)
+                    .maxTokens(3000)
+                    .messages(List.of(
+                            Map.of("role", "user", "content", buildProjectAnalysisPrompt(projectDescription))
+                    ))
+                    .build();
+
+            String response = callAiApi(request);
+            return parseProjectAnalysisResponse(response);
+        } catch (Exception e) {
+            log.error("LLM project analysis failed", e);
+            return buildDefaultProjectAnalysis(projectDescription);
+        }
+    }
+
+    /**
+     * 拆解项目任务
+     */
+    public TaskDecompositionResult decomposeTasks(String projectDescription, String prd) {
+        log.info("AI decomposing tasks for project");
+
+        try {
+            MiniMaxRequest request = AiRequest.builder()
+                    .model(modelName)
+                    .maxTokens(3000)
+                    .messages(List.of(
+                            Map.of("role", "user", "content", buildTaskDecompositionPrompt(projectDescription, prd))
+                    ))
+                    .build();
+
+            String response = callAiApi(request);
+            return parseTaskDecompositionResponse(response);
+        } catch (Exception e) {
+            log.error("LLM task decomposition failed", e);
+            return buildDefaultTaskDecomposition();
+        }
+    }
+
+    /**
+     * 评估单个任务工时
+     */
+    public TaskEstimationResult estimateTask(String taskDescription, String techStack) {
+        log.info("AI estimating task hours");
+
+        try {
+            MiniMaxRequest request = AiRequest.builder()
+                    .model(modelName)
+                    .maxTokens(500)
+                    .messages(List.of(
+                            Map.of("role", "user", "content", buildTaskEstimationPrompt(taskDescription, techStack))
+                    ))
+                    .build();
+
+            String response = callAiApi(request);
+            return parseTaskEstimationResponse(response);
+        } catch (Exception e) {
+            log.error("LLM task estimation failed", e);
+            return buildDefaultTaskEstimation();
+        }
+    }
+
+    /**
+     * 推荐技术栈
+     */
+    public TechStackResult recommendTechStack(String projectDescription) {
+        log.info("AI recommending tech stack");
+
+        try {
+            MiniMaxRequest request = AiRequest.builder()
+                    .model(modelName)
+                    .maxTokens(1000)
+                    .messages(List.of(
+                            Map.of("role", "user", "content", buildTechStackPrompt(projectDescription))
+                    ))
+                    .build();
+
+            String response = callAiApi(request);
+            return parseTechStackResponse(response);
+        } catch (Exception e) {
+            log.error("LLM tech stack recommendation failed", e);
+            return buildDefaultTechStack();
+        }
+    }
+
+    /**
+     * 生成里程碑建议
+     */
+    public List<MilestoneSuggestion> generateMilestones(String projectDescription, int estimatedDays) {
+        log.info("AI generating milestones");
+
+        try {
+            MiniMaxRequest request = AiRequest.builder()
+                    .model(modelName)
+                    .maxTokens(1000)
+                    .messages(List.of(
+                            Map.of("role", "user", "content", buildMilestonePrompt(projectDescription, estimatedDays))
+                    ))
+                    .build();
+
+            String response = callAiApi(request);
+            return parseMilestoneResponse(response);
+        } catch (Exception e) {
+            log.error("LLM milestone generation failed", e);
+            return buildDefaultMilestones(estimatedDays);
+        }
+    }
+
+    // ==================== Prompt Builders ====================
+
+    private String buildProjectAnalysisPrompt(String description) {
+        return String.format("""
+                你是一个专业的产品经理。请分析以下项目描述，生成一份简洁的产品需求文档(PRD)。
+
+                项目描述：
+                %s
+
+                请返回JSON格式：
+                {
+                    "projectName": "项目名称",
+                    "overview": "项目概述（2-3句话）",
+                    "targetUsers": "目标用户",
+                    "coreFeatures": ["核心功能1", "核心功能2", "..."],
+                    "techRequirements": "技术要求",
+                    "risks": "潜在风险",
+                    "estimatedDays": 预估天数(数字)
+                }
+
+                要求：
+                - 核心功能列出3-7个主要功能模块
+                - 预估天数基于1个开发者的产能
+                - 风险要具体可操作
+                """, description);
+    }
+
+    private String buildTaskDecompositionPrompt(String description, String prd) {
+        return String.format("""
+                你是一个资深的项目管理者。请将以下项目拆解为具体的开发任务。
+
+                项目描述：%s
+
+                %s
+
+                请返回JSON格式：
+                {
+                    "modules": [
+                        {
+                            "name": "模块名称",
+                            "description": "模块描述",
+                            "tasks": [
+                                {
+                                    "title": "任务标题",
+                                    "description": "任务描述",
+                                    "type": "FEATURE/BUG/TASK",
+                                    "estimatedHours": 预估小时数
+                                }
+                            ]
+                        }
+                    ]
+                }
+
+                要求：
+                - 每个模块包含2-5个具体任务
+                - 任务要足够具体，可以立即开始开发
+                - 预估小时数基于1个熟练开发者
+                - 按开发顺序排列模块
+                """, description, prd != null ? "PRD文档：" + prd : "");
+    }
+
+    private String buildTaskEstimationPrompt(String taskDescription, String techStack) {
+        return String.format("""
+                请评估以下开发任务的工作量。
+
+                任务描述：%s
+                技术栈：%s
+
+                请返回JSON格式：
+                {
+                    "estimatedHours": 预估小时数(数字),
+                    "difficulty": "EASY/MEDIUM/HARD",
+                    "suggestions": "实现建议"
+                }
+                """, taskDescription, techStack != null ? techStack : "未指定");
+    }
+
+    private String buildTechStackPrompt(String description) {
+        return String.format("""
+                请根据以下项目需求，推荐合适的技术栈。
+
+                项目描述：
+                %s
+
+                请返回JSON格式：
+                {
+                    "frontend": "前端技术",
+                    "backend": "后端技术",
+                    "database": "数据库",
+                    "others": ["其他技术1", "其他技术2"],
+                    "reason": "推荐理由"
+                }
+
+                要求：
+                - 推荐主流、成熟的技术
+                - 考虑个人开发者的学习成本
+                - 优先推荐Java/Spring Boot生态（如果适合）
+                """, description);
+    }
+
+    private String buildMilestonePrompt(String description, int estimatedDays) {
+        return String.format("""
+                请为以下项目生成里程碑节点。
+
+                项目描述：%s
+                预估总天数：%d天
+
+                请返回JSON格式：
+                {
+                    "milestones": [
+                        {
+                            "name": "里程碑名称",
+                            "description": "描述",
+                            "dayOffset": 距离开始的天数(数字)
+                        }
+                    ]
+                }
+
+                要求：
+                - 生成4-6个里程碑
+                - 包含：需求确认、开发开始、核心功能完成、测试、上线
+                - dayOffset从0开始，最后一个应等于总天数
+                """, description, estimatedDays);
+    }
+
+    // ==================== Response Parsers ====================
+
+    private ProjectAnalysisResult parseProjectAnalysisResponse(String response) {
+        try {
+            Pattern namePattern = Pattern.compile("\"projectName\"\\s*:\\s*\"([^\"\\\\]*(?:\\\\.[^\"\\\\]*)*)\"");
+            Pattern overviewPattern = Pattern.compile("\"overview\"\\s*:\\s*\"([^\"\\\\]*(?:\\\\.[^\"\\\\]*)*)\"");
+            Pattern usersPattern = Pattern.compile("\"targetUsers\"\\s*:\\s*\"([^\"\\\\]*(?:\\\\.[^\"\\\\]*)*)\"");
+            Pattern daysPattern = Pattern.compile("\"estimatedDays\"\\s*:\\s*(\\d+)");
+
+            Matcher nameMatcher = namePattern.matcher(response);
+            Matcher overviewMatcher = overviewPattern.matcher(response);
+            Matcher usersMatcher = usersPattern.matcher(response);
+            Matcher daysMatcher = daysPattern.matcher(response);
+
+            String name = nameMatcher.find() ? unescapeJsonString(nameMatcher.group(1)) : "";
+            String overview = overviewMatcher.find() ? unescapeJsonString(overviewMatcher.group(1)) : "";
+            String users = usersMatcher.find() ? unescapeJsonString(usersMatcher.group(1)) : "";
+            int days = daysMatcher.find() ? Integer.parseInt(daysMatcher.group(1)) : 14;
+
+            return new ProjectAnalysisResult(name, overview, users, response, days);
+        } catch (Exception e) {
+            log.error("Failed to parse project analysis response", e);
+            return buildDefaultProjectAnalysis("");
+        }
+    }
+
+    private TaskDecompositionResult parseTaskDecompositionResponse(String response) {
+        try {
+            // 简化解析，直接返回原始JSON供前端处理
+            return new TaskDecompositionResult(response);
+        } catch (Exception e) {
+            log.error("Failed to parse task decomposition response", e);
+            return buildDefaultTaskDecomposition();
+        }
+    }
+
+    private TaskEstimationResult parseTaskEstimationResponse(String response) {
+        try {
+            Pattern hoursPattern = Pattern.compile("\"estimatedHours\"\\s*:\\s*([\\d.]+)");
+            Pattern difficultyPattern = Pattern.compile("\"difficulty\"\\s*:\\s*\"([^\"]+)\"");
+
+            Matcher hoursMatcher = hoursPattern.matcher(response);
+            Matcher difficultyMatcher = difficultyPattern.matcher(response);
+
+            double hours = hoursMatcher.find() ? Double.parseDouble(hoursMatcher.group(1)) : 4;
+            String difficulty = difficultyMatcher.find() ? difficultyMatcher.group(1) : "MEDIUM";
+
+            return new TaskEstimationResult(hours, difficulty, response);
+        } catch (Exception e) {
+            log.error("Failed to parse task estimation response", e);
+            return buildDefaultTaskEstimation();
+        }
+    }
+
+    private TechStackResult parseTechStackResponse(String response) {
+        try {
+            Pattern frontendPattern = Pattern.compile("\"frontend\"\\s*:\\s*\"([^\"\\\\]*(?:\\\\.[^\"\\\\]*)*)\"");
+            Pattern backendPattern = Pattern.compile("\"backend\"\\s*:\\s*\"([^\"\\\\]*(?:\\\\.[^\"\\\\]*)*)\"");
+            Pattern dbPattern = Pattern.compile("\"database\"\\s*:\\s*\"([^\"\\\\]*(?:\\\\.[^\"\\\\]*)*)\"");
+
+            Matcher frontendMatcher = frontendPattern.matcher(response);
+            Matcher backendMatcher = backendPattern.matcher(response);
+            Matcher dbMatcher = dbPattern.matcher(response);
+
+            String frontend = frontendMatcher.find() ? unescapeJsonString(frontendMatcher.group(1)) : "";
+            String backend = backendMatcher.find() ? unescapeJsonString(backendMatcher.group(1)) : "";
+            String database = dbMatcher.find() ? unescapeJsonString(dbMatcher.group(1)) : "";
+
+            return new TechStackResult(frontend, backend, database, response);
+        } catch (Exception e) {
+            log.error("Failed to parse tech stack response", e);
+            return buildDefaultTechStack();
+        }
+    }
+
+    private List<MilestoneSuggestion> parseMilestoneResponse(String response) {
+        try {
+            List<MilestoneSuggestion> milestones = new ArrayList<>();
+            Pattern namePattern = Pattern.compile("\"name\"\\s*:\\s*\"([^\"\\\\]*(?:\\\\.[^\"\\\\]*)*)\"");
+            Pattern descPattern = Pattern.compile("\"description\"\\s*:\\s*\"([^\"\\\\]*(?:\\\\.[^\"\\\\]*)*)\"");
+            Pattern dayPattern = Pattern.compile("\"dayOffset\"\\s*:\\s*(\\d+)");
+
+            Matcher nameMatcher = namePattern.matcher(response);
+            Matcher descMatcher = descPattern.matcher(response);
+            Matcher dayMatcher = dayPattern.matcher(response);
+
+            while (nameMatcher.find()) {
+                String name = unescapeJsonString(nameMatcher.group(1));
+                String desc = descMatcher.find() ? unescapeJsonString(descMatcher.group(1)) : "";
+                int day = dayMatcher.find() ? Integer.parseInt(dayMatcher.group(1)) : 0;
+                milestones.add(new MilestoneSuggestion(name, desc, day));
+            }
+
+            return milestones.isEmpty() ? buildDefaultMilestones(14) : milestones;
+        } catch (Exception e) {
+            log.error("Failed to parse milestone response", e);
+            return buildDefaultMilestones(14);
+        }
+    }
+
+    // ==================== Default Results ====================
+
+    private ProjectAnalysisResult buildDefaultProjectAnalysis(String description) {
+        String name = description.length() > 20 ? description.substring(0, 20) + "..." : description;
+        return new ProjectAnalysisResult(name, description, "通用用户", "{}", 14);
+    }
+
+    private TaskDecompositionResult buildDefaultTaskDecomposition() {
+        return new TaskDecompositionResult("{\"modules\":[]}");
+    }
+
+    private TaskEstimationResult buildDefaultTaskEstimation() {
+        return new TaskEstimationResult(4, "MEDIUM", "{}");
+    }
+
+    private TechStackResult buildDefaultTechStack() {
+        return new TechStackResult("Vue 3", "Spring Boot", "MySQL", "{}");
+    }
+
+    private List<MilestoneSuggestion> buildDefaultMilestones(int totalDays) {
+        return List.of(
+                new MilestoneSuggestion("需求确认", "完成需求评审", 0),
+                new MilestoneSuggestion("开发开始", "搭建项目框架", (int) (totalDays * 0.1)),
+                new MilestoneSuggestion("核心功能", "完成核心功能开发", (int) (totalDays * 0.5)),
+                new MilestoneSuggestion("测试完成", "完成所有测试", (int) (totalDays * 0.8)),
+                new MilestoneSuggestion("项目上线", "部署上线", totalDays)
+        );
+    }
+
+    // ==================== Result Records ====================
+
+    public record ProjectAnalysisResult(
+            String projectName,
+            String overview,
+            String targetUsers,
+            String rawJson,
+            int estimatedDays
+    ) {}
+
+    public record TaskDecompositionResult(String rawJson) {}
+
+    public record TaskEstimationResult(
+            double estimatedHours,
+            String difficulty,
+            String rawJson
+    ) {}
+
+    public record TechStackResult(
+            String frontend,
+            String backend,
+            String database,
+            String rawJson
+    ) {}
+
+    public record MilestoneSuggestion(
+            String name,
+            String description,
+            int dayOffset
+    ) {}
 }

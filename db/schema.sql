@@ -257,3 +257,144 @@ CREATE TABLE file_attachment (
     FOREIGN KEY (ticket_id) REFERENCES ticket(id) ON DELETE CASCADE,
     INDEX idx_file_attachment_ticket_id (ticket_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ============================================
+-- Project Management Tables (New)
+-- ============================================
+
+-- Project main table
+CREATE TABLE project (
+    id              BIGINT AUTO_INCREMENT PRIMARY KEY,
+    name            VARCHAR(200) NOT NULL COMMENT '项目名称',
+    description     TEXT COMMENT '项目描述',
+    project_type    VARCHAR(50) COMMENT '项目类型: THESIS/OUTSOURCE/INTERNAL/PERSONAL',
+
+    -- AI analysis results
+    ai_prd          MEDIUMTEXT COMMENT 'AI生成的PRD文档',
+    ai_tech_stack   VARCHAR(500) COMMENT 'AI推荐的技术栈',
+    ai_estimated_hours INT COMMENT 'AI预估工时(小时)',
+    ai_estimated_days INT COMMENT 'AI预估天数',
+    ai_risk_analysis TEXT COMMENT 'AI风险分析',
+
+    -- Status: PLANNING, IN_PROGRESS, TESTING, COMPLETED, ARCHIVED
+    status          VARCHAR(30) DEFAULT 'PLANNING',
+    priority        VARCHAR(10) DEFAULT 'P2',
+
+    -- Time management
+    deadline        DATE COMMENT '截止日期',
+    actual_start_date DATE COMMENT '实际开始日期',
+    actual_end_date DATE COMMENT '实际结束日期',
+
+    -- Progress
+    progress        INT DEFAULT 0 COMMENT '进度百分比 0-100',
+    total_tasks     INT DEFAULT 0,
+    completed_tasks INT DEFAULT 0,
+
+    -- Creator
+    creator_id      BIGINT NOT NULL,
+    creator_name    VARCHAR(100),
+
+    -- Attachments
+    attachments     JSON COMMENT '项目文档附件',
+
+    created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at      DATETIME,
+
+    INDEX idx_project_creator (creator_id),
+    INDEX idx_project_status (status),
+    INDEX idx_project_created (created_at DESC)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Project module table
+CREATE TABLE project_module (
+    id              BIGINT AUTO_INCREMENT PRIMARY KEY,
+    project_id      BIGINT NOT NULL,
+    name            VARCHAR(200) NOT NULL COMMENT '模块名称',
+    description     TEXT COMMENT '模块描述',
+    sort_order      INT DEFAULT 0 COMMENT '排序',
+    status          VARCHAR(30) DEFAULT 'PENDING' COMMENT 'PENDING/IN_PROGRESS/COMPLETED',
+    progress        INT DEFAULT 0,
+    total_tasks     INT DEFAULT 0,
+    completed_tasks INT DEFAULT 0,
+    created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    INDEX idx_module_project (project_id),
+    FOREIGN KEY (project_id) REFERENCES project(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Project task table
+CREATE TABLE project_task (
+    id              BIGINT AUTO_INCREMENT PRIMARY KEY,
+    project_id      BIGINT NOT NULL,
+    module_id       BIGINT COMMENT '所属模块，可为空',
+    parent_task_id  BIGINT COMMENT '父任务ID，支持子任务',
+
+    -- Task info
+    title           VARCHAR(200) NOT NULL,
+    description     TEXT,
+    task_type       VARCHAR(30) COMMENT 'FEATURE/BUG/TASK/REFACTOR',
+    status          VARCHAR(30) DEFAULT 'TODO' COMMENT 'TODO/IN_PROGRESS/REVIEW/DONE',
+    priority        VARCHAR(10) DEFAULT 'P2',
+
+    -- Work hours
+    estimated_hours DECIMAL(8,2) COMMENT '预估工时',
+    actual_hours    DECIMAL(8,2) COMMENT '实际工时',
+
+    -- AI evaluation
+    ai_estimated_hours DECIMAL(8,2) COMMENT 'AI预估工时',
+    ai_suggestion   TEXT COMMENT 'AI实现建议',
+
+    -- Time
+    deadline        DATE,
+    completed_at    DATETIME,
+
+    -- Assignee
+    assignee_id     BIGINT,
+    assignee_name   VARCHAR(100),
+
+    created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    INDEX idx_task_project (project_id),
+    INDEX idx_task_module (module_id),
+    INDEX idx_task_status (status),
+    INDEX idx_task_parent (parent_task_id),
+    FOREIGN KEY (project_id) REFERENCES project(id) ON DELETE CASCADE,
+    FOREIGN KEY (module_id) REFERENCES project_module(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Milestone table
+CREATE TABLE milestone (
+    id              BIGINT AUTO_INCREMENT PRIMARY KEY,
+    project_id      BIGINT NOT NULL,
+    name            VARCHAR(200) NOT NULL COMMENT '里程碑名称',
+    description     TEXT,
+    due_date        DATE COMMENT '计划日期',
+    actual_date     DATE COMMENT '实际完成日期',
+    status          VARCHAR(30) DEFAULT 'PENDING' COMMENT 'PENDING/ACHIEVED/MISSED',
+    sort_order      INT DEFAULT 0,
+    created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    INDEX idx_milestone_project (project_id),
+    FOREIGN KEY (project_id) REFERENCES project(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Project discussion table (replaces ticket_comment for projects)
+CREATE TABLE project_discussion (
+    id              BIGINT AUTO_INCREMENT PRIMARY KEY,
+    project_id      BIGINT NOT NULL,
+    target_type     VARCHAR(30) COMMENT 'PROJECT/MODULE/TASK',
+    target_id       BIGINT COMMENT '关联的项目/模块/任务ID',
+    user_id         BIGINT NOT NULL,
+    user_name       VARCHAR(100),
+    content         TEXT NOT NULL,
+    is_ai_suggested BOOLEAN DEFAULT FALSE,
+    created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+
+    INDEX idx_discussion_project (project_id),
+    INDEX idx_discussion_target (target_type, target_id),
+    FOREIGN KEY (project_id) REFERENCES project(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

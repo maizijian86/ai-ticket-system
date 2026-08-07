@@ -18,25 +18,50 @@ public class JwtUtil {
     @Value("${jwt.secret:aiticket-default-secret-key-for-development-only}")
     private String secret;
 
-    @Value("${jwt.expiration:86400000}")
-    private Long expiration; // 24 hours in milliseconds
+    @Value("${jwt.access-token-expiration:1800000}")
+    private Long accessTokenExpiration; // 30 minutes in milliseconds
+
+    @Value("${jwt.refresh-token-expiration:604800000}")
+    private Long refreshTokenExpiration; // 7 days in milliseconds
 
     private SecretKey getSigningKey() {
         byte[] keyBytes = secret.getBytes(StandardCharsets.UTF_8);
         return Keys.hmacShaKeyFor(keyBytes);
     }
 
-    public String generateToken(Long userId, String username, String role) {
+    /**
+     * 生成Access Token (短期，30分钟)
+     */
+    public String generateAccessToken(Long userId, String username, String role) {
         Map<String, Object> claims = new HashMap<>();
         claims.put("userId", userId);
         claims.put("username", username);
         claims.put("role", role);
+        claims.put("tokenType", "ACCESS");
 
         return Jwts.builder()
                 .claims(claims)
                 .subject(username)
                 .issuedAt(new Date())
-                .expiration(new Date(System.currentTimeMillis() + expiration))
+                .expiration(new Date(System.currentTimeMillis() + accessTokenExpiration))
+                .signWith(getSigningKey())
+                .compact();
+    }
+
+    /**
+     * 生成Refresh Token (长期，7天)
+     */
+    public String generateRefreshToken(Long userId, String username) {
+        Map<String, Object> claims = new HashMap<>();
+        claims.put("userId", userId);
+        claims.put("username", username);
+        claims.put("tokenType", "REFRESH");
+
+        return Jwts.builder()
+                .claims(claims)
+                .subject(username)
+                .issuedAt(new Date())
+                .expiration(new Date(System.currentTimeMillis() + refreshTokenExpiration))
                 .signWith(getSigningKey())
                 .compact();
     }
