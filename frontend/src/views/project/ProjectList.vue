@@ -84,6 +84,9 @@
 import { ref, onMounted } from 'vue'
 import { Plus, Clock, Calendar } from '@element-plus/icons-vue'
 import { projectApi } from '@/api'
+import { useAuthStore } from '@/stores/auth'
+
+const authStore = useAuthStore()
 
 const projects = ref([])
 const total = ref(0)
@@ -103,8 +106,16 @@ const loadProjects = async () => {
     if (currentStatus.value) {
       res = await projectApi.getByStatus(currentStatus.value, currentPage.value - 1, pageSize.value)
     } else {
-      // 默认加载我的项目（假设userId=1，实际应从登录状态获取）
-      res = await projectApi.getMyProjects(1, currentPage.value - 1, pageSize.value)
+      // 默认加载我的项目。这里原本硬编码 userId=1，等于所有登录用户都只能看到
+      // 1 号用户的项目；路由接上之后这个错误会真实地暴露给每个用户。
+      const userId = authStore.userInfo?.id
+      if (!userId) {
+        // 登录态不完整（例如 localStorage 被清过一半），不带着 undefined 去打接口
+        projects.value = []
+        total.value = 0
+        return
+      }
+      res = await projectApi.getMyProjects(userId, currentPage.value - 1, pageSize.value)
     }
     projects.value = res.data.content || []
     total.value = res.data.totalElements || 0

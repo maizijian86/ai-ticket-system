@@ -72,6 +72,25 @@ const routes: RouteRecordRaw[] = [
         name: 'Knowledge',
         component: () => import('@/views/knowledge/Knowledge.vue')
       },
+      // 项目管理
+      // 此前整块 views/project/ 都没有注册路由，页面无入口、点进去是空白。
+      {
+        path: 'projects',
+        name: 'ProjectList',
+        component: () => import('@/views/project/ProjectList.vue')
+      },
+      // 必须排在 projects/:id 之前：vue-router 的静态段优先于动态段，
+      // 但把这条写在前面能让「create 被当成 id」这件事一眼可见。
+      {
+        path: 'projects/create',
+        name: 'ProjectCreate',
+        component: () => import('@/views/project/ProjectCreate.vue')
+      },
+      {
+        path: 'projects/:id',
+        name: 'ProjectDetail',
+        component: () => import('@/views/project/ProjectDetail.vue')
+      },
       {
         path: 'admin/users',
         name: 'UserManage',
@@ -83,6 +102,15 @@ const routes: RouteRecordRaw[] = [
         name: 'Stats',
         component: () => import('@/views/admin/Stats.vue'),
         meta: { requiresAdmin: true }
+      },
+      // 兜底：必须放在所有子路由之后。
+      // 没有它时，任何未匹配的路径都会渲染成布局 + 空的 <router-view>，
+      // 表现为整页空白，既不报错也没有任何提示。
+      // 放在 AppLayout 内部是为了保留侧边栏，用户能直接点走而不是卡在死页。
+      {
+        path: ':pathMatch(.*)*',
+        name: 'NotFound',
+        component: () => import('@/views/NotFound.vue')
       }
     ]
   }

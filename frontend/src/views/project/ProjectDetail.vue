@@ -64,7 +64,7 @@
 
       <!-- 讨论区 -->
       <el-tab-pane label="讨论" name="discussion">
-        <DiscussionList projectId="" :targetType="'PROJECT'" :targetId="project.id" />
+        <DiscussionList :projectId="project.id" :targetType="'PROJECT'" :targetId="project.id" />
       </el-tab-pane>
     </el-tabs>
   </div>
@@ -89,9 +89,15 @@ const activeTab = ref('tasks')
 const loadProject = async () => {
   try {
     const res = await projectApi.getById(route.params.id)
+    // 后端「项目不存在」是 HTTP 200 + code!=200，不会走 catch。
+    // 不显式判断的话 project 会停在 undefined，而模板整段包在 v-if="project" 里，
+    // 结果是白屏而不是报错——所以在这里主动抛出去，交给下面的 catch 处理。
+    if (!res.data) {
+      throw new Error(res.message || '项目不存在')
+    }
     project.value = res.data
   } catch (error) {
-    ElMessage.error('加载项目失败')
+    ElMessage.error(error.message || '加载项目失败')
     router.push('/projects')
   }
 }

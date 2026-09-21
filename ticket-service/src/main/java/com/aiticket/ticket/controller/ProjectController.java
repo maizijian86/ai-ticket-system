@@ -1,6 +1,7 @@
 package com.aiticket.ticket.controller;
 
 import com.aiticket.common.dto.Result;
+import com.aiticket.common.exception.BusinessException;
 import com.aiticket.ticket.entity.Project;
 import com.aiticket.ticket.entity.ProjectModule;
 import com.aiticket.ticket.entity.ProjectTask;
@@ -23,8 +24,26 @@ public class ProjectController {
 
     // ==================== Project CRUD ====================
 
+    /**
+     * 创建项目。
+     *
+     * creator_id 是 NOT NULL 列，而前端从不（也不该）在请求体里携带 createorId —— 此前
+     * 这里直接把请求体存库，导致任何创建请求都以 "Column 'creator_id' cannot be null"
+     * 失败，项目管理模块的「创建项目」从来就没成功过。
+     *
+     * 身份只能取自网关注入的 X-User-Id：它来源于已经过签名的 Access Token。若采信请求体
+     * 里的值，任何人都能把项目挂到别人名下。
+     */
     @PostMapping
-    public Result<Project> createProject(@RequestBody Project project) {
+    public Result<Project> createProject(
+            @RequestBody Project project,
+            @RequestHeader(value = "X-User-Id", required = false) Long userId,
+            @RequestHeader(value = "X-User-Name", required = false) String userName) {
+        if (userId == null) {
+            throw new BusinessException(401, "未登录");
+        }
+        project.setCreatorId(userId);
+        project.setCreatorName(userName);
         return Result.success(projectService.createProject(project));
     }
 

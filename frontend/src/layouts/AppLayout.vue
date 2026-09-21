@@ -38,6 +38,10 @@
           <el-icon><Finished /></el-icon>
           <template #title>已完成</template>
         </el-menu-item>
+        <el-menu-item index="/projects" class="menu-item">
+          <el-icon><Folder /></el-icon>
+          <template #title>项目管理</template>
+        </el-menu-item>
         <el-menu-item index="/knowledge" class="menu-item">
           <el-icon><Reading /></el-icon>
           <template #title>知识库</template>
@@ -100,7 +104,7 @@ import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores'
 import {
   List, User, Clock, Suitcase, Finished, Reading, Setting,
-  Fold, Expand, UserFilled, ArrowDown, Monitor
+  Folder, Fold, Expand, UserFilled, ArrowDown, Monitor
 } from '@element-plus/icons-vue'
 
 const router = useRouter()
