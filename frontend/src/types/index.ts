@@ -161,11 +161,16 @@ export interface TicketQueryRequest {
   pageSize?: number
 }
 
+/**
+ * 字段名必须与后端 TicketStatsDTO 一致（open/accepted/pendingApproval/completed）。
+ * 这里以前写的是 processing/resolved/closed，全是后端不存在的字段 —— 类型没报错，
+ * 但取到的值恒为 undefined，四张统计卡里三张永远显示空白。
+ */
 export interface TicketStatsDTO {
   open: number
-  processing: number
-  resolved: number
-  closed: number
+  accepted: number
+  pendingApproval: number
+  completed: number
 }
 
 export interface ClassifyResponse {
@@ -216,3 +221,105 @@ export interface ChatMessageDTO {
 export interface SendChatRequest {
   content: string
 }
+
+// ============================================================ 项目域
+// 字段对齐 ticket-service 的 Project / ProjectModule / ProjectTask /
+// Milestone / ProjectDiscussion 实体。BaseEntity 提供 id 与三个时间戳。
+
+export type ProjectStatus = 'PLANNING' | 'IN_PROGRESS' | 'COMPLETED' | 'ARCHIVED'
+export type ProjectType = 'THESIS' | 'OUTSOURCE' | 'INTERNAL' | 'PERSONAL'
+export type ModuleStatus = 'PENDING' | 'IN_PROGRESS' | 'COMPLETED'
+export type TaskStatus = 'TODO' | 'IN_PROGRESS' | 'DONE' | 'BLOCKED'
+export type MilestoneStatus = 'PENDING' | 'COMPLETED' | 'DELAYED'
+/** 讨论挂在谁身上：项目 / 模块 / 任务 / 里程碑 */
+export type DiscussionTargetType = 'PROJECT' | 'MODULE' | 'TASK' | 'MILESTONE'
+
+interface BaseDTO {
+  id: number
+  createdAt?: string
+  updatedAt?: string
+}
+
+export interface ProjectDTO extends BaseDTO {
+  name: string
+  description?: string
+  projectType?: ProjectType
+  aiPrd?: string
+  aiTechStack?: string
+  aiEstimatedHours?: number
+  aiEstimatedDays?: number
+  aiRiskAnalysis?: string
+  status?: ProjectStatus
+  priority?: Priority
+  deadline?: string
+  actualStartDate?: string
+  actualEndDate?: string
+  progress?: number
+  totalTasks?: number
+  completedTasks?: number
+  creatorId?: number
+  creatorName?: string
+  attachments?: Record<string, unknown>
+}
+
+export interface ProjectModuleDTO extends BaseDTO {
+  projectId: number
+  name: string
+  description?: string
+  sortOrder?: number
+  status?: ModuleStatus
+  progress?: number
+  totalTasks?: number
+  completedTasks?: number
+}
+
+export interface ProjectTaskDTO extends BaseDTO {
+  projectId: number
+  moduleId?: number
+  parentTaskId?: number
+  title: string
+  description?: string
+  taskType?: string
+  status?: TaskStatus
+  priority?: Priority
+  estimatedHours?: number
+  actualHours?: number
+  aiEstimatedHours?: number
+  aiSuggestion?: string
+  deadline?: string
+  completedAt?: string
+  assigneeId?: number
+  assigneeName?: string
+}
+
+export interface MilestoneDTO extends BaseDTO {
+  projectId: number
+  name: string
+  description?: string
+  dueDate?: string
+  actualDate?: string
+  status?: MilestoneStatus
+  sortOrder?: number
+}
+
+export interface ProjectDiscussionDTO extends BaseDTO {
+  projectId: number
+  targetType?: DiscussionTargetType
+  targetId?: number
+  userId?: number
+  userName?: string
+  content: string
+  isAiSuggested?: boolean
+}
+
+/** 后端各实体用 @RequestBody 直接收实体，所以写入类型就是字段的子集。 */
+export type CreateProjectRequest = Omit<ProjectDTO, 'id' | 'createdAt' | 'updatedAt'>
+export type UpdateProjectRequest = Partial<CreateProjectRequest>
+export type CreateModuleRequest = Omit<ProjectModuleDTO, 'id' | 'projectId' | 'createdAt' | 'updatedAt'>
+export type UpdateModuleRequest = Partial<CreateModuleRequest>
+export type CreateTaskRequest = Omit<ProjectTaskDTO, 'id' | 'projectId' | 'createdAt' | 'updatedAt'>
+export type UpdateTaskRequest = Partial<CreateTaskRequest>
+export type CreateMilestoneRequest = Omit<MilestoneDTO, 'id' | 'projectId' | 'createdAt' | 'updatedAt'>
+export type UpdateMilestoneRequest = Partial<CreateMilestoneRequest>
+export type CreateDiscussionRequest = Pick<ProjectDiscussionDTO, 'content'>
+export type UpdateAiAnalysisRequest = Pick<ProjectDTO, 'aiPrd' | 'aiTechStack' | 'aiEstimatedHours' | 'aiEstimatedDays' | 'aiRiskAnalysis'>

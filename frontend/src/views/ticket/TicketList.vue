@@ -27,15 +27,15 @@
       </div>
       <div
         class="stat-card glass-card"
-        :class="{ active: activeStatus === 'PROCESSING' }"
-        @click="handleStatusFilter('PROCESSING')"
+        :class="{ active: activeStatus === 'ACCEPTED' }"
+        @click="handleStatusFilter('ACCEPTED')"
       >
         <div class="stat-icon stat-icon-processing">
           <el-icon size="24"><Loading /></el-icon>
         </div>
         <div class="stat-info">
-          <div class="stat-value">{{ stats.processing }}</div>
-          <div class="stat-label">处理中</div>
+          <div class="stat-value">{{ stats.accepted }}</div>
+          <div class="stat-label">开发中</div>
         </div>
         <div class="stat-arrow">
           <el-icon><ArrowRight /></el-icon>
@@ -43,15 +43,15 @@
       </div>
       <div
         class="stat-card glass-card"
-        :class="{ active: activeStatus === 'RESOLVED' }"
-        @click="handleStatusFilter('RESOLVED')"
+        :class="{ active: activeStatus === 'PENDING_APPROVAL' }"
+        @click="handleStatusFilter('PENDING_APPROVAL')"
       >
         <div class="stat-icon stat-icon-resolved">
           <el-icon size="24"><CircleCheck /></el-icon>
         </div>
         <div class="stat-info">
-          <div class="stat-value">{{ stats.resolved }}</div>
-          <div class="stat-label">已解决</div>
+          <div class="stat-value">{{ stats.pendingApproval }}</div>
+          <div class="stat-label">待验收</div>
         </div>
         <div class="stat-arrow">
           <el-icon><ArrowRight /></el-icon>
@@ -59,15 +59,15 @@
       </div>
       <div
         class="stat-card glass-card"
-        :class="{ active: activeStatus === 'CLOSED' }"
-        @click="handleStatusFilter('CLOSED')"
+        :class="{ active: activeStatus === 'COMPLETED' }"
+        @click="handleStatusFilter('COMPLETED')"
       >
         <div class="stat-icon stat-icon-closed">
-          <el-icon size="24"><Lock /></el-icon>
+          <el-icon size="24"><Finished /></el-icon>
         </div>
         <div class="stat-info">
-          <div class="stat-value">{{ stats.closed }}</div>
-          <div class="stat-label">已关闭</div>
+          <div class="stat-value">{{ stats.completed }}</div>
+          <div class="stat-label">已完成</div>
         </div>
         <div class="stat-arrow">
           <el-icon><ArrowRight /></el-icon>
@@ -188,7 +188,7 @@ import { useRouter } from 'vue-router'
 import { ticketApi } from '@/api'
 import { useTicketStore } from '@/stores'
 import { useAuthStore } from '@/stores/auth'
-import { Plus, Clock, Loading, CircleCheck, Lock, ArrowRight, Document } from '@element-plus/icons-vue'
+import { Plus, Clock, Loading, CircleCheck, Finished, ArrowRight, Document } from '@element-plus/icons-vue'
 import type { TicketDTO, TicketStatsDTO, TicketStatus, TicketCategory, Priority } from '@/types'
 
 const router = useRouter()
@@ -196,7 +196,7 @@ const ticketStore = useTicketStore()
 const authStore = useAuthStore()
 
 const tickets = ref<TicketDTO[]>([])
-const stats = ref<TicketStatsDTO>({ open: 0, processing: 0, resolved: 0, closed: 0 })
+const stats = ref<TicketStatsDTO>({ open: 0, accepted: 0, pendingApproval: 0, completed: 0 })
 const loading = ref(false)
 const loadingMore = ref(false)
 const activeStatus = ref<TicketStatus | ''>('')
@@ -276,28 +276,6 @@ function resetFilters() {
 
 function formatDate(date: string) {
   return new Date(date).toLocaleString('zh-CN')
-}
-
-function getCategoryType(category: string) {
-  const map: Record<string, string> = {
-    BUG: 'danger',
-    CONSULT: 'primary',
-    COMPLAINT: 'warning',
-    SUGGESTION: 'success',
-    OTHER: 'info'
-  }
-  return map[category] || 'info'
-}
-
-function getCategoryLabel(category: string) {
-  const map: Record<string, string> = {
-    BUG: 'Bug',
-    CONSULT: '咨询',
-    COMPLAINT: '投诉',
-    SUGGESTION: '建议',
-    OTHER: '其他'
-  }
-  return map[category] || category
 }
 
 function getStatusType(status: string) {

@@ -98,9 +98,12 @@ const submitForm = async () => {
 
   submitting.value = true
   try {
+    // projectApi 的响应拦截器返回的是后端信封 { code, message, data }，
+    // 新建的项目在 res.data 上。写成 res.id 会得到 undefined，
+    // 跳转到 /projects/undefined，详情页随即加载失败。
     const res = await projectApi.create({ ...form })
     ElMessage.success('项目创建成功')
-    router.push(`/projects/${res.id}`)
+    router.push(`/projects/${res.data.id}`)
   } catch (error) {
     ElMessage.error('创建失败: ' + (error.message || '未知错误'))
   } finally {

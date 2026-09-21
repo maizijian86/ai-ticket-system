@@ -168,7 +168,9 @@ async function handleSubmit() {
           projectType: form.projectType,
           techStack: form.techStack,
           detailedRequirements: form.detailedRequirements,
-          budget: form.budget,
+          // form.budget 是 number | null（输入框清空后为 null），
+          // 而 CreateTicketRequest.budget 是可选的 number —— 用 ?? 把 null 收敛成 undefined。
+          budget: form.budget ?? undefined,
           deadline: form.deadline
         })
 

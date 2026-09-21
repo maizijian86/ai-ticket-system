@@ -358,51 +358,6 @@ async function handleAiChat() {
   }
 }
 
-async function handleStartProcessing() {
-  if (!ticket.value) return
-  try {
-    ticket.value = await ticketApi.startProcessing(ticket.value.id)
-    ticketStore.triggerRefresh()
-    ElMessage.success('已开始处理')
-  } catch {
-    // error handled
-  }
-}
-
-async function handleResolve() {
-  if (!ticket.value) return
-  try {
-    ticket.value = await ticketApi.resolve(ticket.value.id)
-    ticketStore.triggerRefresh()
-    ElMessage.success('已标记为解决')
-  } catch {
-    // error handled
-  }
-}
-
-async function handleReopen() {
-  if (!ticket.value) return
-  try {
-    ticket.value = await ticketApi.reopen(ticket.value.id)
-    ticketStore.triggerRefresh()
-    ElMessage.success('工单已重新打开')
-  } catch {
-    // error handled
-  }
-}
-
-async function handleClose() {
-  if (!ticket.value) return
-  try {
-    await ElMessageBox.confirm('确定要关闭此工单吗？', '确认关闭')
-    ticket.value = await ticketApi.close(ticket.value.id)
-    ticketStore.triggerRefresh()
-    ElMessage.success('工单已关闭')
-  } catch {
-    // cancelled
-  }
-}
-
 async function handleAddComment() {
   if (!ticket.value || !newComment.value.trim()) return
   submitting.value = true

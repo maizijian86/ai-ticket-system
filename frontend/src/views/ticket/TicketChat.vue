@@ -85,14 +85,12 @@
 import { ref, onMounted, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { ticketApi } from '@/api'
-import { useTicketStore } from '@/stores'
 import { ElMessage } from 'element-plus'
 import { ArrowLeft, User, Monitor, ChatDotRound } from '@element-plus/icons-vue'
 import type { TicketDTO, ChatMessageDTO } from '@/types'
 
 const router = useRouter()
 const route = useRoute()
-const ticketStore = useTicketStore()
 
 const ticketId = Number(route.params.id)
 const ticket = ref<TicketDTO>()

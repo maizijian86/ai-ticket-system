@@ -30,8 +30,8 @@
           <el-icon size="28"><Loading /></el-icon>
         </div>
         <div class="stat-info">
-          <div class="stat-value">{{ stats.processing }}</div>
-          <div class="stat-label">处理中</div>
+          <div class="stat-value">{{ stats.accepted }}</div>
+          <div class="stat-label">开发中</div>
         </div>
       </el-card>
 
@@ -40,18 +40,18 @@
           <el-icon size="28"><CircleCheck /></el-icon>
         </div>
         <div class="stat-info">
-          <div class="stat-value">{{ stats.resolved }}</div>
-          <div class="stat-label">已解决</div>
+          <div class="stat-value">{{ stats.pendingApproval }}</div>
+          <div class="stat-label">待验收</div>
         </div>
       </el-card>
 
       <el-card class="stat-card glass-card" shadow="hover">
         <div class="stat-icon stat-icon-closed">
-          <el-icon size="28"><Lock /></el-icon>
+          <el-icon size="28"><Finished /></el-icon>
         </div>
         <div class="stat-info">
-          <div class="stat-value">{{ stats.closed }}</div>
-          <div class="stat-label">已关闭</div>
+          <div class="stat-value">{{ stats.completed }}</div>
+          <div class="stat-label">已完成</div>
         </div>
       </el-card>
     </div>
@@ -78,15 +78,15 @@
           </div>
           <div class="legend-item">
             <span class="dot stat-icon-processing"></span>
-            <span>处理中 ({{ stats.processing }})</span>
+            <span>开发中 ({{ stats.accepted }})</span>
           </div>
           <div class="legend-item">
             <span class="dot stat-icon-resolved"></span>
-            <span>已解决 ({{ stats.resolved }})</span>
+            <span>待验收 ({{ stats.pendingApproval }})</span>
           </div>
           <div class="legend-item">
             <span class="dot stat-icon-closed"></span>
-            <span>已关闭 ({{ stats.closed }})</span>
+            <span>已完成 ({{ stats.completed }})</span>
           </div>
         </div>
       </div>
@@ -97,12 +97,13 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { ticketApi } from '@/api'
-import { Ticket, Clock, Loading, CircleCheck, Lock } from '@element-plus/icons-vue'
+import { Ticket, Clock, Loading, CircleCheck, Finished } from '@element-plus/icons-vue'
 import type { TicketStatsDTO } from '@/types'
 
-const stats = ref<TicketStatsDTO>({ open: 0, processing: 0, resolved: 0, closed: 0 })
+const stats = ref<TicketStatsDTO>({ open: 0, accepted: 0, pendingApproval: 0, completed: 0 })
 
-const total = computed(() => stats.value.open + stats.value.processing + stats.value.resolved + stats.value.closed)
+const total = computed(() =>
+  stats.value.open + stats.value.accepted + stats.value.pendingApproval + stats.value.completed)
 const totalPercentage = computed(() => (total.value > 0 ? 100 : 0))
 
 const progressColors = [
