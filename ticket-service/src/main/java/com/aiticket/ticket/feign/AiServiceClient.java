@@ -7,7 +7,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 
 import java.util.Map;
 
-@FeignClient(name = "ai-service", url = "${ai-service.url:http://localhost:8083}")
+@FeignClient(name = "ai-service", url = "${ai-service.url:http://127.0.0.1:8083}")
 public interface AiServiceClient {
 
     @PostMapping("/api/v1/ai/classify")
