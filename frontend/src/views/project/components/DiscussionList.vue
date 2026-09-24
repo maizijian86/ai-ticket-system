@@ -33,18 +33,19 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { projectApi } from '@/api'
+import type { DiscussionTargetType, ProjectDiscussionDTO } from '@/types'
 
-const props = defineProps({
-  projectId: [String, Number],
-  targetType: String,
-  targetId: [String, Number]
-})
+const props = defineProps<{
+  projectId?: number
+  targetType?: DiscussionTargetType
+  targetId?: number
+}>()
 
-const discussions = ref([])
+const discussions = ref<ProjectDiscussionDTO[]>([])
 const newComment = ref('')
 const submitting = ref(false)
 
@@ -64,13 +65,17 @@ const loadDiscussions = async () => {
 
 const submitComment = async () => {
   if (!newComment.value.trim()) return
+  // 后端拿路径上的 projectId 定项目，但 targetType/targetId 是从请求体原样存库的，
+  // 而 loadDiscussions 是按 targetType+targetId 查的 —— 少传这两个字段，评论就会
+  // 发出去成功、但刷新后不再出现在列表里。
+  if (!props.projectId) return
 
   submitting.value = true
   try {
     await projectApi.addDiscussion(props.projectId, {
+      content: newComment.value,
       targetType: props.targetType,
-      targetId: props.targetId,
-      content: newComment.value
+      targetId: props.targetId
     })
     newComment.value = ''
     ElMessage.success('评论发表成功')
@@ -82,11 +87,11 @@ const submitComment = async () => {
   }
 }
 
-const formatTime = (time) => {
+const formatTime = (time?: string) => {
   if (!time) return ''
   const date = new Date(time)
-  const now = new Date()
-  const diff = now - date
+  // Date 相减会走 valueOf 得到数字，但 TS 不允许直接对 Date 做算术 —— 取时间戳。
+  const diff = Date.now() - date.getTime()
 
   if (diff < 60000) return '刚刚'
   if (diff < 3600000) return `${Math.floor(diff / 60000)}分钟前`

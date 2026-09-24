@@ -12,7 +12,7 @@
       <el-card v-for="module in modules" :key="module.id" class="module-card" shadow="hover">
         <div class="module-header">
           <h4>{{ module.name }}</h4>
-          <el-dropdown @command="(cmd) => handleCommand(cmd, module)">
+          <el-dropdown @command="(cmd: string | number | object) => handleCommand(cmd, module)">
             <el-icon class="more-btn"><More /></el-icon>
             <template #dropdown>
               <el-dropdown-menu>
@@ -56,30 +56,36 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { Plus, More } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { projectApi } from '@/api'
+import type { CreateModuleRequest, ModuleStatus, ProjectModuleDTO } from '@/types'
 
-const props = defineProps({
-  projectId: [String, Number]
-})
+type TagType = 'primary' | 'success' | 'info' | 'warning' | 'danger'
 
-const emit = defineEmits(['refresh'])
+const props = defineProps<{ projectId?: number }>()
 
-const modules = ref([])
+const emit = defineEmits<{ refresh: [] }>()
+
+const modules = ref<ProjectModuleDTO[]>([])
 const dialogVisible = ref(false)
-const editingModule = ref(null)
+const editingModule = ref<ProjectModuleDTO | null>(null)
 const saving = ref(false)
 
-const moduleForm = ref({
-  name: '',
-  description: '',
-  sortOrder: 0
-})
+/**
+ * 表单只覆盖对话框真正能让用户改的字段（CreateModuleRequest 里还有 status /
+ * progress / totalTasks / completedTasks，那四个由后端随任务进度算，不属于用户输入）。
+ */
+type ModuleForm = Pick<CreateModuleRequest, 'name' | 'description' | 'sortOrder'>
+
+const emptyForm = (): ModuleForm => ({ name: '', description: '', sortOrder: 0 })
+
+const moduleForm = ref<ModuleForm>(emptyForm())
 
 const loadModules = async () => {
+  if (!props.projectId) return
   try {
     const res = await projectApi.getModules(props.projectId)
     modules.value = res.data || []
@@ -90,14 +96,24 @@ const loadModules = async () => {
 
 const showCreateDialog = () => {
   editingModule.value = null
-  moduleForm.value = { name: '', description: '', sortOrder: 0 }
+  moduleForm.value = emptyForm()
   dialogVisible.value = true
 }
 
-const handleCommand = async (cmd, module) => {
+// el-dropdown 的 command 事件签名是 [String, Object, Number]，而这里的指令值全是字符串。
+// 收敛成 string 再比较，省得让联合类型渗进业务判断。
+const handleCommand = async (raw: string | number | object, module: ProjectModuleDTO) => {
+  const cmd = String(raw)
   if (cmd === 'edit') {
     editingModule.value = module
-    moduleForm.value = { ...module }
+    // 只挑对话框能编辑的字段，不要 { ...module } 展开：展开会把 status / progress /
+    // totalTasks 一起发出去，而这三个是后端按任务数算出来的，不是用户输入。
+    // 后端 updateModule 是 if (x != null) 才写，不发即保持原值。
+    moduleForm.value = {
+      name: module.name,
+      description: module.description,
+      sortOrder: module.sortOrder
+    }
     dialogVisible.value = true
   } else if (cmd === 'delete') {
     try {
@@ -119,6 +135,7 @@ const saveModule = async () => {
     ElMessage.warning('请输入模块名称')
     return
   }
+  if (!props.projectId) return
 
   saving.value = true
   try {
@@ -139,15 +156,22 @@ const saveModule = async () => {
   }
 }
 
-const getStatusType = (status) => {
-  const map = { PENDING: 'info', IN_PROGRESS: '', COMPLETED: 'success' }
-  return map[status] || ''
+/** 与后端 ProjectService 里 module.setStatus(...) 的取值一一对应。 */
+const statusTagTypes: Record<ModuleStatus, TagType | ''> = {
+  PENDING: 'info',
+  IN_PROGRESS: '',
+  COMPLETED: 'success'
 }
 
-const getStatusLabel = (status) => {
-  const map = { PENDING: '待开始', IN_PROGRESS: '进行中', COMPLETED: '已完成' }
-  return map[status] || status
+const statusLabels: Record<ModuleStatus, string> = {
+  PENDING: '待开始',
+  IN_PROGRESS: '进行中',
+  COMPLETED: '已完成'
 }
+
+// 查表失败时回退显示原始值：后端若新增了状态，界面显示原始字符串比显示空白更容易定位。
+const getStatusType = (status?: ModuleStatus) => (status ? statusTagTypes[status] : '')
+const getStatusLabel = (status?: ModuleStatus) => (status ? statusLabels[status] || status : '-')
 
 onMounted(() => {
   loadModules()

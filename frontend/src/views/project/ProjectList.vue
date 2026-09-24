@@ -17,10 +17,12 @@
       </el-button>
 
       <div class="filter-group">
+        <!-- 这里原本有个「测试中 / TESTING」选项，永远不会筛出结果（没有任何代码
+             把项目置为该状态），已删。后端 ProjectRepository 的查询里仍含 TESTING，
+             若将来它变得可达，记得同时补回这个选项和上面的统计卡。 -->
         <el-select v-model="currentStatus" placeholder="项目状态" clearable @change="loadProjects">
           <el-option label="规划中" value="PLANNING" />
           <el-option label="进行中" value="IN_PROGRESS" />
-          <el-option label="测试中" value="TESTING" />
           <el-option label="已完成" value="COMPLETED" />
           <el-option label="已归档" value="ARCHIVED" />
         </el-select>
@@ -32,7 +34,7 @@
       <el-card v-for="project in projects" :key="project.id" class="project-card" shadow="hover"
         @click="$router.push(`/projects/${project.id}`)">
         <div class="project-header">
-          <span class="project-type-tag" :type="getProjectType(project.projectType)">
+          <span class="project-type-tag">
             {{ getProjectTypeLabel(project.projectType) }}
           </span>
           <el-tag :type="getStatusType(project.status)" size="small">
@@ -80,24 +82,31 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { Plus, Clock, Calendar } from '@element-plus/icons-vue'
 import { projectApi } from '@/api'
 import { useAuthStore } from '@/stores/auth'
+import type { ProjectDTO, ProjectStatus, ProjectType } from '@/types'
+
+/** el-tag / el-progress 的 type 取值，写成字面量联合才能当合法属性传进去。 */
+type TagType = 'primary' | 'success' | 'info' | 'warning' | 'danger'
 
 const authStore = useAuthStore()
 
-const projects = ref([])
+const projects = ref<ProjectDTO[]>([])
 const total = ref(0)
 const currentPage = ref(1)
 const pageSize = ref(12)
-const currentStatus = ref('')
+// '' 表示「不限状态」，所以类型不能只有 ProjectStatus。
+const currentStatus = ref<ProjectStatus | ''>('')
 
-const stats = ref([
+// 统计卡的 status 必须是 ProjectStatus。此前它是个裸数组，'TESTING' 这种后端
+// 从不产生的值也能写进来 —— 结果是一张永远是 0、点了还没结果的卡片。
+const stats = ref<Array<{ status: ProjectStatus; label: string; count: number }>>([
   { status: 'PLANNING', label: '规划中', count: 0 },
   { status: 'IN_PROGRESS', label: '进行中', count: 0 },
-  { status: 'COMPLETED', label: '已完成', count: 0 },
+  { status: 'COMPLETED', label: '已完成', count: 0 }
 ])
 
 const loadProjects = async () => {
@@ -135,32 +144,42 @@ const loadStats = async () => {
   }
 }
 
-const filterByStatus = (status) => {
+const filterByStatus = (status: ProjectStatus) => {
   currentStatus.value = currentStatus.value === status ? '' : status
   loadProjects()
 }
 
-const getProjectTypeLabel = (type) => {
-  const map = { THESIS: '毕设', OUTSOURCE: '外包', INTERNAL: '内部', PERSONAL: '个人' }
-  return map[type] || type
+const projectTypeLabels: Record<ProjectType, string> = {
+  THESIS: '毕设',
+  OUTSOURCE: '外包',
+  INTERNAL: '内部',
+  PERSONAL: '个人'
 }
 
-const getProjectType = (type) => {
-  const map = { THESIS: 'primary', OUTSOURCE: 'warning', INTERNAL: 'info', PERSONAL: 'success' }
-  return map[type] || ''
+// 查表失败时回退显示原始值：后端若新增了状态，界面显示原始字符串比显示空白更容易定位。
+const getProjectTypeLabel = (type?: ProjectType) => (type ? projectTypeLabels[type] || type : '-')
+
+// 模板里 <span class="project-type-tag"> 曾经绑了个 :type="getProjectType(...)"，
+// 但 span 没有 type 属性、配色全部来自 CSS 类，这个函数算了却没人用 —— 已删。
+
+const statusTagTypes: Record<ProjectStatus, TagType | ''> = {
+  PLANNING: 'info',
+  IN_PROGRESS: '',
+  COMPLETED: 'success',
+  ARCHIVED: 'info'
 }
 
-const getStatusType = (status) => {
-  const map = { PLANNING: 'info', IN_PROGRESS: '', TESTING: 'warning', COMPLETED: 'success', ARCHIVED: 'info' }
-  return map[status] || ''
+const statusLabels: Record<ProjectStatus, string> = {
+  PLANNING: '规划中',
+  IN_PROGRESS: '进行中',
+  COMPLETED: '已完成',
+  ARCHIVED: '已归档'
 }
 
-const getStatusLabel = (status) => {
-  const map = { PLANNING: '规划中', IN_PROGRESS: '进行中', TESTING: '测试中', COMPLETED: '已完成', ARCHIVED: '已归档' }
-  return map[status] || status
-}
+const getStatusType = (status?: ProjectStatus) => (status ? statusTagTypes[status] : '')
+const getStatusLabel = (status?: ProjectStatus) => (status ? statusLabels[status] || status : '-')
 
-const formatDate = (date) => {
+const formatDate = (date?: string) => {
   if (!date) return '-'
   return new Date(date).toLocaleDateString('zh-CN')
 }

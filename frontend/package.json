@@ -5,7 +5,10 @@
   "scripts": {
     "dev": "vite",
     "build": "vue-tsc && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "type-check": "vue-tsc --noEmit",
+    "check:sfc-lang": "node scripts/check-sfc-lang.mjs",
+    "verify": "npm run check:sfc-lang && npm run type-check"
   },
   "dependencies": {
     "vue": "^3.4.21",

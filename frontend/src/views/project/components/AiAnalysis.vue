@@ -40,14 +40,25 @@
   </div>
 </template>
 
-<script setup>
-defineProps({
-  project: Object
-})
+<script setup lang="ts">
+import type { ProjectDTO } from '@/types'
 
-const formatPrd = (prd) => {
+// 父组件（ProjectDetail）整段包在 v-if="project" 里，所以到这里一定是非空的。
+defineProps<{ project: ProjectDTO }>()
+
+/** 后端 aiPrd 存的是一段 JSON 文本，字段名以 ai-service 生成时的输出为准。 */
+interface PrdShape {
+  projectName?: string
+  overview?: string
+  targetUsers?: string
+  coreFeatures?: string[]
+  techRequirements?: string
+  risks?: string
+}
+
+const formatPrd = (prd: string) => {
   try {
-    const data = JSON.parse(prd)
+    const data = JSON.parse(prd) as PrdShape
     return `项目名称: ${data.projectName || '-'}
 
 概述: ${data.overview || '-'}
@@ -55,12 +66,13 @@ const formatPrd = (prd) => {
 目标用户: ${data.targetUsers || '-'}
 
 核心功能:
-${(data.coreFeatures || []).map((f, i) => `  ${i + 1}. ${f}`).join('\n')}
+${(data.coreFeatures || []).map((f: string, i: number) => `  ${i + 1}. ${f}`).join('\n')}
 
 技术要求: ${data.techRequirements || '-'}
 
 潜在风险: ${data.risks || '-'}`
   } catch {
+    // 不是 JSON 就直接原样显示 —— 用户至少能看到内容，而不是一片空白
     return prd
   }
 }

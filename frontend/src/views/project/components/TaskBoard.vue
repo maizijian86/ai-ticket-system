@@ -25,7 +25,7 @@
             <p class="task-desc">{{ task.description }}</p>
             <div class="task-footer">
               <span v-if="task.estimatedHours" class="task-hours">{{ task.estimatedHours }}h</span>
-              <el-dropdown @command="(cmd) => moveTask(task, cmd)">
+              <el-dropdown @command="(cmd: string | number | object) => moveTask(task, cmd)">
                 <el-icon class="more-btn"><More /></el-icon>
                 <template #dropdown>
                   <el-dropdown-menu>
@@ -82,31 +82,39 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { Plus, More } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { projectApi } from '@/api'
+import type { CreateTaskRequest, Priority, ProjectTaskDTO, TaskStatus } from '@/types'
 
-const props = defineProps({
-  projectId: [String, Number]
-})
+type TagType = 'primary' | 'success' | 'info' | 'warning' | 'danger'
 
-const emit = defineEmits(['refresh'])
+const props = defineProps<{ projectId?: number }>()
 
-const tasks = ref([])
+const emit = defineEmits<{ refresh: [] }>()
+
+const tasks = ref<ProjectTaskDTO[]>([])
 const dialogVisible = ref(false)
-const editingTask = ref(null)
+const editingTask = ref<ProjectTaskDTO | null>(null)
 const saving = ref(false)
 
-const columns = [
+const columns: Array<{ status: TaskStatus; title: string; color: string }> = [
   { status: 'TODO', title: '待办', color: '#909399' },
   { status: 'IN_PROGRESS', title: '进行中', color: '#409eff' },
   { status: 'REVIEW', title: '评审中', color: '#e6a23c' },
   { status: 'DONE', title: '已完成', color: '#67c23a' }
 ]
 
-const taskForm = ref({
+/**
+ * 表单只覆盖对话框真正能让用户改的字段。
+ * 不用 CreateTaskRequest 全量：那里面还有 status / actualHours / aiSuggestion /
+ * completedAt 等一堆表单里看不见的字段，标成「可填」会让人以为它们受用户控制。
+ */
+type TaskForm = Pick<CreateTaskRequest, 'title' | 'description' | 'taskType' | 'priority' | 'estimatedHours'>
+
+const emptyForm = (): TaskForm => ({
   title: '',
   description: '',
   taskType: 'FEATURE',
@@ -114,7 +122,10 @@ const taskForm = ref({
   estimatedHours: 4
 })
 
+const taskForm = ref<TaskForm>(emptyForm())
+
 const loadTasks = async () => {
+  if (!props.projectId) return
   try {
     const res = await projectApi.getTasks(props.projectId)
     tasks.value = res.data || []
@@ -123,25 +134,32 @@ const loadTasks = async () => {
   }
 }
 
-const getColumnTasks = (status) => {
-  return tasks.value.filter(t => t.status === status)
+const getColumnTasks = (status: TaskStatus) => {
+  return tasks.value.filter((t) => t.status === status)
 }
 
 const showCreateDialog = () => {
   editingTask.value = null
-  taskForm.value = {
-    title: '',
-    description: '',
-    taskType: 'FEATURE',
-    priority: 'P2',
-    estimatedHours: 4
-  }
+  taskForm.value = emptyForm()
   dialogVisible.value = true
 }
 
-const editTask = (task) => {
+const editTask = (task: ProjectTaskDTO) => {
   editingTask.value = task
-  taskForm.value = { ...task }
+  // 只挑对话框能编辑的字段，不要 { ...task } 展开 —— 展开会把 id、status、
+  // completedAt、moduleId 这些表单里看不见的字段一起塞进请求体，而表单类型
+  // 又声称没有它们，类型和实际发的报文对不上。今天后端恰好只白名单拷贝
+  // title/description/taskType/priority/estimatedHours/deadline，所以没出事；
+  // 但万一有人往白名单里加 moduleId，展开就会把实体里的旧值当用户输入写进去。
+  // 少发字段是安全的：ProjectService.updateTask 对每个字段都是 if (x != null)
+  // 才写，不发即保持原值 —— 白名单里的 deadline 正是这样被留住的。
+  taskForm.value = {
+    title: task.title,
+    description: task.description,
+    taskType: task.taskType,
+    priority: task.priority,
+    estimatedHours: task.estimatedHours
+  }
   dialogVisible.value = true
 }
 
@@ -150,6 +168,7 @@ const saveTask = async () => {
     ElMessage.warning('请输入任务标题')
     return
   }
+  if (!props.projectId) return
 
   saving.value = true
   try {
@@ -170,8 +189,17 @@ const saveTask = async () => {
   }
 }
 
-const moveTask = async (task, status) => {
-  if (status === 'delete') {
+const TASK_STATUSES: readonly TaskStatus[] = ['TODO', 'IN_PROGRESS', 'REVIEW', 'DONE']
+
+/** 后端把状态原样存库，所以进库前先确认它确实是本应用认识的状态。 */
+const isTaskStatus = (value: string): value is TaskStatus =>
+  (TASK_STATUSES as readonly string[]).includes(value)
+
+// el-dropdown 的 command 签名是 [String, Object, Number]，指令值全是字符串，先收敛。
+const moveTask = async (task: ProjectTaskDTO, raw: string | number | object) => {
+  const command = String(raw)
+
+  if (command === 'delete') {
     try {
       await ElMessageBox.confirm('确定要删除这个任务吗？', '确认')
       await projectApi.deleteTask(task.id)
@@ -183,22 +211,28 @@ const moveTask = async (task, status) => {
         ElMessage.error('删除失败')
       }
     }
-  } else {
-    try {
-      await projectApi.updateTaskStatus(task.id, status)
-      ElMessage.success('状态更新成功')
-      loadTasks()
-      emit('refresh')
-    } catch (error) {
-      ElMessage.error('更新失败')
-    }
+    return
+  }
+
+  if (!isTaskStatus(command)) return
+  try {
+    await projectApi.updateTaskStatus(task.id, command)
+    ElMessage.success('状态更新成功')
+    loadTasks()
+    emit('refresh')
+  } catch (error) {
+    ElMessage.error('更新失败')
   }
 }
 
-const getPriorityType = (priority) => {
-  const map = { P0: 'danger', P1: 'warning', P2: '', P3: 'info' }
-  return map[priority] || ''
+const priorityTagTypes: Record<Priority, TagType | ''> = {
+  P0: 'danger',
+  P1: 'warning',
+  P2: '',
+  P3: 'info'
 }
+
+const getPriorityType = (priority?: Priority) => (priority ? priorityTagTypes[priority] : '')
 
 onMounted(() => {
   loadTasks()

@@ -229,8 +229,19 @@ export interface SendChatRequest {
 export type ProjectStatus = 'PLANNING' | 'IN_PROGRESS' | 'COMPLETED' | 'ARCHIVED'
 export type ProjectType = 'THESIS' | 'OUTSOURCE' | 'INTERNAL' | 'PERSONAL'
 export type ModuleStatus = 'PENDING' | 'IN_PROGRESS' | 'COMPLETED'
-export type TaskStatus = 'TODO' | 'IN_PROGRESS' | 'DONE' | 'BLOCKED'
-export type MilestoneStatus = 'PENDING' | 'COMPLETED' | 'DELAYED'
+/**
+ * 任务状态。取值以「后端会存什么 + 前端会显示什么」为准：
+ * ProjectService 只显式写过 TODO / DONE，其余由 updateTaskStatus 原样存库，
+ * 而看板（TaskBoard）有一列「评审中」并允许把任务移过去，所以 REVIEW 是真实可达的。
+ * 曾经这里还写过一个 BLOCKED —— 前后端都没有任何地方产生或消费它，已删。
+ */
+export type TaskStatus = 'TODO' | 'IN_PROGRESS' | 'REVIEW' | 'DONE'
+/**
+ * 里程碑状态。后端 ProjectService 用 setStatus("ACHIEVED") 标记完成（不是 COMPLETED），
+ * MilestoneList 也按 ACHIEVED / MISSED 显示。此前这里写成 COMPLETED | DELAYED，
+ * 两个值后端都不产生 —— 类型与实现各错一半，谁也发现不了。
+ */
+export type MilestoneStatus = 'PENDING' | 'ACHIEVED' | 'MISSED'
 /** 讨论挂在谁身上：项目 / 模块 / 任务 / 里程碑 */
 export type DiscussionTargetType = 'PROJECT' | 'MODULE' | 'TASK' | 'MILESTONE'
 
@@ -321,5 +332,30 @@ export type CreateTaskRequest = Omit<ProjectTaskDTO, 'id' | 'projectId' | 'creat
 export type UpdateTaskRequest = Partial<CreateTaskRequest>
 export type CreateMilestoneRequest = Omit<MilestoneDTO, 'id' | 'projectId' | 'createdAt' | 'updatedAt'>
 export type UpdateMilestoneRequest = Partial<CreateMilestoneRequest>
-export type CreateDiscussionRequest = Pick<ProjectDiscussionDTO, 'content'>
+export type CreateDiscussionRequest = Pick<ProjectDiscussionDTO, 'content'> &
+  Partial<Pick<ProjectDiscussionDTO, 'targetType' | 'targetId'>>
 export type UpdateAiAnalysisRequest = Pick<ProjectDTO, 'aiPrd' | 'aiTechStack' | 'aiEstimatedHours' | 'aiEstimatedDays' | 'aiRiskAnalysis'>
+
+// ---------------------------------------------------------------- 响应信封
+/**
+ * 后端统一响应体。注意 src/api/project.ts 的响应拦截器返回的是**这个信封本身**，
+ * 不是 data —— 所以那边的方法签名都以 ApiEnvelope<T> 为返回类型，调用方写 res.data。
+ * （src/utils/axios.ts 是另一个实例，它的拦截器会剥掉信封，语义不同，别混用。）
+ */
+export interface ApiEnvelope<T> {
+  code: number
+  message: string
+  data: T
+}
+
+/**
+ * Spring Data 的 Page<T> 序列化后的形状，只列出前端真正用到的字段。
+ * 与后端自带的 PageResult DTO 不是一回事：那个是 { total, page, pageSize, data }。
+ */
+export interface SpringPage<T> {
+  content: T[]
+  totalElements: number
+  totalPages: number
+  number: number
+  size: number
+}

@@ -70,25 +70,44 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { projectApi } from '@/api'
+import type { ProjectDTO, ProjectStatus, ProjectType } from '@/types'
 import TaskBoard from './components/TaskBoard.vue'
 import ModuleList from './components/ModuleList.vue'
 import MilestoneList from './components/MilestoneList.vue'
 import AiAnalysis from './components/AiAnalysis.vue'
 import DiscussionList from './components/DiscussionList.vue'
 
+type TagType = 'primary' | 'success' | 'info' | 'warning' | 'danger'
+
 const route = useRoute()
 const router = useRouter()
-const project = ref(null)
+const project = ref<ProjectDTO | null>(null)
 const activeTab = ref('tasks')
 
+const backToList = () => {
+  router.push('/projects')
+}
+
 const loadProject = async () => {
+  // route.params.id 是 string | string[]，而接口要的是数字。
+  // 不转换的话 '/projects/abc' 会带着字符串去打后端，只能靠后端报错兜回来 ——
+  // 与其指望后端，不如在这里判断掉：Number('abc') 得到 NaN，被 isFinite 挡下。
+  // 注意别指望它挡住数组：Number(['5']) === 5，单元素数组是能过这个判断的
+  // （本路由是 projects/:id 而非 :id+，params.id 不会是数组，所以够用）。
+  const id = Number(route.params.id)
+  if (!Number.isFinite(id)) {
+    ElMessage.error('项目 ID 非法')
+    backToList()
+    return
+  }
+
   try {
-    const res = await projectApi.getById(route.params.id)
+    const res = await projectApi.getById(id)
     // 后端「项目不存在」是 HTTP 200 + code!=200，不会走 catch。
     // 不显式判断的话 project 会停在 undefined，而模板整段包在 v-if="project" 里，
     // 结果是白屏而不是报错——所以在这里主动抛出去，交给下面的 catch 处理。
@@ -97,12 +116,13 @@ const loadProject = async () => {
     }
     project.value = res.data
   } catch (error) {
-    ElMessage.error(error.message || '加载项目失败')
-    router.push('/projects')
+    ElMessage.error(error instanceof Error ? error.message : '加载项目失败')
+    backToList()
   }
 }
 
 const startProject = async () => {
+  if (!project.value) return
   try {
     await projectApi.start(project.value.id)
     ElMessage.success('项目已开始')
@@ -113,6 +133,7 @@ const startProject = async () => {
 }
 
 const completeProject = async () => {
+  if (!project.value) return
   try {
     await ElMessageBox.confirm('确定要标记项目为完成吗？', '确认')
     await projectApi.complete(project.value.id)
@@ -125,22 +146,38 @@ const completeProject = async () => {
   }
 }
 
-const getProjectTypeLabel = (type) => {
-  const map = { THESIS: '毕设', OUTSOURCE: '外包', INTERNAL: '内部', PERSONAL: '个人' }
-  return map[type] || type
+const projectTypeLabels: Record<ProjectType, string> = {
+  THESIS: '毕设',
+  OUTSOURCE: '外包',
+  INTERNAL: '内部',
+  PERSONAL: '个人'
 }
 
-const getStatusType = (status) => {
-  const map = { PLANNING: 'info', IN_PROGRESS: '', TESTING: 'warning', COMPLETED: 'success', ARCHIVED: 'info' }
-  return map[status] || ''
+// 这里原本还有 TESTING，已删。注意这**不是**纯类型问题，而是一个判断：
+// 没有任何代码会把项目置为 TESTING，所以它当下不可达 —— 但后端并非不认识它，
+// Project.java 的状态注释里列了它，ProjectRepository.findActiveProjects() 的
+// IN 列表也含它。将来若真有人开始写 TESTING，下面两个查表会失败并回退成
+// 原始字符串（界面还能看，不至于空白），只是筛选下拉框和统计卡里不会有这一项。
+const statusTagTypes: Record<ProjectStatus, TagType | ''> = {
+  PLANNING: 'info',
+  IN_PROGRESS: '',
+  COMPLETED: 'success',
+  ARCHIVED: 'info'
 }
 
-const getStatusLabel = (status) => {
-  const map = { PLANNING: '规划中', IN_PROGRESS: '进行中', TESTING: '测试中', COMPLETED: '已完成', ARCHIVED: '已归档' }
-  return map[status] || status
+const statusLabels: Record<ProjectStatus, string> = {
+  PLANNING: '规划中',
+  IN_PROGRESS: '进行中',
+  COMPLETED: '已完成',
+  ARCHIVED: '已归档'
 }
 
-const formatDate = (date) => {
+// 查表失败时回退显示原始值：后端若新增了状态，界面显示原始字符串比显示空白更容易定位。
+const getProjectTypeLabel = (type?: ProjectType) => (type ? projectTypeLabels[type] || type : '-')
+const getStatusType = (status?: ProjectStatus) => (status ? statusTagTypes[status] : '')
+const getStatusLabel = (status?: ProjectStatus) => (status ? statusLabels[status] || status : '-')
+
+const formatDate = (date?: string) => {
   if (!date) return '-'
   return new Date(date).toLocaleDateString('zh-CN')
 }

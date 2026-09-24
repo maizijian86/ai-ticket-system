@@ -62,29 +62,34 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { Plus } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { projectApi } from '@/api'
+import type { CreateMilestoneRequest, MilestoneDTO, MilestoneStatus } from '@/types'
 
-const props = defineProps({
-  projectId: [String, Number]
-})
+type TagType = 'primary' | 'success' | 'info' | 'warning' | 'danger'
 
-const milestones = ref([])
+const props = defineProps<{ projectId?: number }>()
+
+const milestones = ref<MilestoneDTO[]>([])
 const dialogVisible = ref(false)
-const editingMilestone = ref(null)
+const editingMilestone = ref<MilestoneDTO | null>(null)
 const saving = ref(false)
 
-const milestoneForm = ref({
-  name: '',
-  description: '',
-  dueDate: '',
-  sortOrder: 0
-})
+/**
+ * 表单只覆盖对话框真正能让用户改的字段（CreateMilestoneRequest 里还有
+ * status / actualDate，它们由 completeMilestone 等专用接口维护，不该出现在表单里）。
+ */
+type MilestoneForm = Pick<CreateMilestoneRequest, 'name' | 'description' | 'dueDate' | 'sortOrder'>
+
+const emptyForm = (): MilestoneForm => ({ name: '', description: '', dueDate: '', sortOrder: 0 })
+
+const milestoneForm = ref<MilestoneForm>(emptyForm())
 
 const loadMilestones = async () => {
+  if (!props.projectId) return
   try {
     const res = await projectApi.getMilestones(props.projectId)
     milestones.value = res.data || []
@@ -95,13 +100,21 @@ const loadMilestones = async () => {
 
 const showCreateDialog = () => {
   editingMilestone.value = null
-  milestoneForm.value = { name: '', description: '', dueDate: '', sortOrder: 0 }
+  milestoneForm.value = emptyForm()
   dialogVisible.value = true
 }
 
-const editMilestone = (milestone) => {
+const editMilestone = (milestone: MilestoneDTO) => {
   editingMilestone.value = milestone
-  milestoneForm.value = { ...milestone }
+  // 只挑对话框能编辑的字段，不要 { ...milestone } 展开：展开会把 status / actualDate
+  // 一起发出去，而这两个字段归 completeMilestone 管，不该由编辑表单覆盖。
+  // 后端 updateMilestone 是 if (x != null) 才写，不发即保持原值。
+  milestoneForm.value = {
+    name: milestone.name,
+    description: milestone.description,
+    dueDate: milestone.dueDate,
+    sortOrder: milestone.sortOrder
+  }
   dialogVisible.value = true
 }
 
@@ -110,6 +123,7 @@ const saveMilestone = async () => {
     ElMessage.warning('请输入里程碑名称')
     return
   }
+  if (!props.projectId) return
 
   saving.value = true
   try {
@@ -129,7 +143,7 @@ const saveMilestone = async () => {
   }
 }
 
-const completeMilestone = async (milestone) => {
+const completeMilestone = async (milestone: MilestoneDTO) => {
   try {
     await projectApi.completeMilestone(milestone.id)
     ElMessage.success('里程碑已完成')
@@ -139,7 +153,7 @@ const completeMilestone = async (milestone) => {
   }
 }
 
-const deleteMilestone = async (milestone) => {
+const deleteMilestone = async (milestone: MilestoneDTO) => {
   try {
     await ElMessageBox.confirm('确定要删除这个里程碑吗？', '确认')
     await projectApi.deleteMilestone(milestone.id)
@@ -152,17 +166,27 @@ const deleteMilestone = async (milestone) => {
   }
 }
 
-const getStatusType = (status) => {
-  const map = { PENDING: 'info', ACHIEVED: 'success', MISSED: 'danger' }
-  return map[status] || ''
+// 后端标记完成时写的是 ACHIEVED（ProjectService.completeMilestone），不是 COMPLETED。
+// 这里的键必须与后端一致，否则里程碑完成后状态标签会退化成原始字符串。
+const statusTagTypes: Record<MilestoneStatus, TagType> = {
+  PENDING: 'info',
+  ACHIEVED: 'success',
+  MISSED: 'danger'
 }
 
-const getStatusLabel = (status) => {
-  const map = { PENDING: '待完成', ACHIEVED: '已达成', MISSED: '已逾期' }
-  return map[status] || status
+const statusLabels: Record<MilestoneStatus, string> = {
+  PENDING: '待完成',
+  ACHIEVED: '已达成',
+  MISSED: '已逾期'
 }
 
-const formatDate = (date) => {
+// 查表失败时回退显示原始值：后端若新增了状态，界面显示原始字符串比显示空白更容易定位。
+// 查表失败时回退成 'info'（灰）而不是像其他几个文件那样回退成 ''（蓝）：这里的返回值
+// 同时喂给 el-timeline-item 的 :type，是时间轴节点的颜色，缺失状态下灰色比蓝色更贴切。
+const getStatusType = (status?: MilestoneStatus) => (status ? statusTagTypes[status] : 'info')
+const getStatusLabel = (status?: MilestoneStatus) => (status ? statusLabels[status] || status : '-')
+
+const formatDate = (date?: string) => {
   if (!date) return ''
   return new Date(date).toLocaleDateString('zh-CN')
 }

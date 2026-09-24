@@ -68,17 +68,27 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { ref, reactive } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
+import type { FormInstance, FormRules } from 'element-plus'
 import { projectApi } from '@/api'
+import type { Priority, ProjectType } from '@/types'
 
 const router = useRouter()
-const formRef = ref(null)
+const formRef = ref<FormInstance | null>(null)
 const submitting = ref(false)
 
-const form = reactive({
+// projectType 用 '' 表示「还没选」，所以类型里要带上它 —— 后端要的是非空的
+// ProjectType，中间态不该混进请求体（下面提交时会收敛掉）。
+const form = reactive<{
+  name: string
+  description: string
+  projectType: ProjectType | ''
+  deadline: string
+  priority: Priority
+}>({
   name: '',
   description: '',
   projectType: '',
@@ -86,26 +96,40 @@ const form = reactive({
   priority: 'P2'
 })
 
-const rules = {
+const rules: FormRules = {
   name: [{ required: true, message: '请输入项目名称', trigger: 'blur' }],
   description: [{ required: true, message: '请输入项目描述', trigger: 'blur' }],
   projectType: [{ required: true, message: '请选择项目类型', trigger: 'change' }]
 }
 
 const submitForm = async () => {
-  const valid = await formRef.value.validate().catch(() => false)
+  const valid = await formRef.value?.validate().catch(() => false)
   if (!valid) return
+
+  // 表单校验只保证运行时非空，类型上仍是 ProjectType | ''。收敛成局部常量，
+  // 既让类型变窄，也避免用 as 把 '' 强行当成合法枚举值传下去。
+  const projectType = form.projectType
+  if (!projectType) {
+    ElMessage.warning('请选择项目类型')
+    return
+  }
 
   submitting.value = true
   try {
     // projectApi 的响应拦截器返回的是后端信封 { code, message, data }，
     // 新建的项目在 res.data 上。写成 res.id 会得到 undefined，
     // 跳转到 /projects/undefined，详情页随即加载失败。
-    const res = await projectApi.create({ ...form })
+    const res = await projectApi.create({
+      name: form.name,
+      description: form.description,
+      projectType,
+      deadline: form.deadline,
+      priority: form.priority
+    })
     ElMessage.success('项目创建成功')
     router.push(`/projects/${res.data.id}`)
   } catch (error) {
-    ElMessage.error('创建失败: ' + (error.message || '未知错误'))
+    ElMessage.error('创建失败: ' + (error instanceof Error ? error.message : '未知错误'))
   } finally {
     submitting.value = false
   }
