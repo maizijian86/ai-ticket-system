@@ -221,11 +221,29 @@ public class ProjectController {
 
     // ==================== Discussion Operations ====================
 
+    /**
+     * 发表讨论。
+     *
+     * user_id 是 NOT NULL 列，而前端只发 content/targetType/targetId —— 此前这里直接把
+     * 请求体存库，于是每一次发表都以 "Column 'user_id' cannot be null" 失败，评论一条
+     * 也存不进去（HTTP 200 但信封里是 code:500，前端只弹「发表失败」）。与 createProject
+     * 同一类问题、同一套修法。
+     *
+     * 身份只能取自网关注入的 X-User-Id：它来源于已经过签名的 Access Token。若采信请求体
+     * 里的 userId/userName，任何人都能以别人的名义发言。
+     */
     @PostMapping("/{projectId}/discussions")
     public Result<ProjectDiscussion> addDiscussion(
             @PathVariable Long projectId,
-            @RequestBody ProjectDiscussion discussion) {
+            @RequestBody ProjectDiscussion discussion,
+            @RequestHeader(value = "X-User-Id", required = false) Long userId,
+            @RequestHeader(value = "X-User-Name", required = false) String userName) {
+        if (userId == null) {
+            throw new BusinessException(401, "未登录");
+        }
         discussion.setProjectId(projectId);
+        discussion.setUserId(userId);
+        discussion.setUserName(userName);
         return Result.success(projectService.addDiscussion(discussion));
     }
 
