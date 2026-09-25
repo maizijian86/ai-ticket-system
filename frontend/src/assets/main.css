@@ -285,6 +285,15 @@ body::before {
 /* ========================================
    弹窗/对话框
    ======================================== */
+/* 注意选择器：Element Plus 把 <el-dialog class="glass-dialog"> 的 class 直接
+   落在 .el-dialog 自己身上（实测 DOM 是 div.el-dialog.glass-dialog），**不是**
+   包在外面的祖先元素。所以这里必须是复合选择器 .glass-dialog.el-dialog。
+   写成后代选择器 .glass-dialog .el-dialog 会一条都匹配不上：弹窗保留 Element
+   Plus 默认的纯白底（--el-dialog-bg-color），而下面 header/body/title 那几条
+   是后代选择器、**依然命中**，于是文字被涂成白色 —— 白底白字，整个弹窗只剩
+   一个能看见的蓝色按钮。同一类错误（容器类的选择器写成了后代）值得在改别的
+   组件时一并核对。 */
+.glass-dialog.el-dialog,
 .glass-dialog .el-dialog {
   background: var(--glass-bg) !important;
   backdrop-filter: blur(var(--blur-heavy));
@@ -505,6 +514,30 @@ a:hover {
   color: var(--text-secondary) !important;
 }
 
+/* 步进器 el-input-number：EP 给加减按钮的底色是 --el-fill-color-light（#f5f7fa，
+   近白）、符号色是 --el-text-color-regular（#606266，中灰）——在深色弹窗里就是
+   两块白方块配一根几乎看不清的横线。它不在 el-input 的覆盖范围内：那两个按钮是
+   __decrease/__increase 绝对定位的**兄弟**节点，不是 __wrapper 的子节点，所以
+   「新建模块」里的「排序」一直是白的。 */
+.el-input-number__decrease,
+.el-input-number__increase {
+  background: var(--glass-bg) !important;
+  color: var(--text-primary) !important;
+  border-color: var(--glass-border) !important;
+}
+
+.el-input-number__decrease:hover,
+.el-input-number__increase:hover {
+  background: var(--glass-bg-hover) !important;
+  color: var(--accent-primary) !important;
+}
+
+.el-input-number__decrease.is-disabled,
+.el-input-number__increase.is-disabled {
+  color: var(--text-tertiary) !important;
+  background: var(--glass-bg) !important;
+}
+
 /* 字符计数背景 */
 .el-input__count-inner,
 .el-input__count {
@@ -620,6 +653,92 @@ a:hover {
 .el-card__body {
   color: var(--text-primary) !important;
   padding: 20px;
+}
+
+/* 提示条覆盖（el-alert）—— 与上面那批组件覆盖是同一类问题：Element Plus 给每种
+   类型配的底色是 *-light-9（info 就是 #f4f4f5，近乎纯白），本主题没覆盖，于是在
+   深色玻璃弹窗里顶出一块白板。更要命的是文字色：EP 按类型给的是 --el-color-info
+   （#909399 中灰），压在这块白底上对比度只有约 2.9:1，低于 WCAG AA 的 4.5:1 ——
+   「去完成」弹窗里那句"沟通记录与 AI 记忆会一并清除"正好落在里面，最该看清的一句
+   反而最糊。
+
+   这里只压底色和文字色，**保留 EP 按类型给的图标颜色**：深色底上 blue/green/
+   orange/red 本来就很清楚，全部涂白反而丢掉了"这是哪一级提示"这个信息。 */
+.el-alert,
+.el-alert--primary,
+.el-alert--success,
+.el-alert--info,
+.el-alert--warning,
+.el-alert--error {
+  /* 深浅两种 effect 都读这一个变量，改它比逐个类去压更不容易漏 */
+  --el-alert-bg-color: var(--glass-bg);
+  background-color: var(--glass-bg) !important;
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-sm);
+  /* 必须 !important：EP 的类型类（.el-alert--info 等）带一个 color: --el-color-info，
+     比这条单类选择器更专，不加会被它按回去（根节点上留着中灰，将来谁往 <el-alert>
+     里直接放文本就又是灰的） */
+  color: var(--text-secondary) !important;
+}
+
+.el-alert .el-alert__title {
+  color: var(--text-primary) !important;
+}
+
+.el-alert .el-alert__description,
+.el-alert .el-alert__content {
+  color: var(--text-secondary) !important;
+}
+
+/* 正文里的 <strong> 是这句话的重点（"会一并清除"），给它主文字色 */
+.el-alert .el-alert__content strong {
+  color: var(--text-primary) !important;
+  font-weight: 600;
+}
+
+/* 时间轴覆盖（el-timeline）—— 里程碑页签用的就是它。
+   EP 把节点正文写死成 --el-text-color-primary（#303133 深灰），本主题的卡片是
+   深色玻璃，于是整条时间轴只剩圆点和按钮看得见，"里程碑叫什么"是糊在背景上的。
+   描述文字（__description）反而没有颜色规则、继承页面的白，一明一暗对比非常明显。
+   时间戳用的 --el-text-color-secondary（#909399）也偏低，一并按本主题的次要文字色走。 */
+.el-timeline-item__content {
+  color: var(--text-primary) !important;
+}
+
+.el-timeline-item__timestamp {
+  color: var(--text-secondary) !important;
+}
+
+/* 描述列表覆盖（el-descriptions border 模式）—— AI 分析页签里的「预估工时/天数」。
+   EP 的 bordered 变体自带一块纯白底（.el-descriptions__body: --el-fill-color-blank）
+   和深色文字，在深色页面上就是又一块白板；标签格子是 --el-fill-color-light。
+   注意这一条**没有实测截图**：它只在 AI 分析出结果后才渲染，跑一次要几分钟，
+   我没为了看一眼样式去烧模型的额度。规则是从 EP 的 CSS 默认值直接推出来的，
+   改完只会比"白板深字"更贴本主题，不会更差。 */
+.el-descriptions {
+  --el-descriptions-table-border: 1px solid var(--glass-border);
+  color: var(--text-primary) !important;
+}
+
+.el-descriptions__body {
+  background-color: transparent !important;
+}
+
+.el-descriptions__label.el-descriptions__cell.is-bordered-label {
+  background: rgba(255, 255, 255, 0.05) !important;
+  color: var(--text-secondary) !important;
+  border-color: var(--glass-border) !important;
+}
+
+.el-descriptions__content.el-descriptions__cell.is-bordered-content,
+.el-descriptions__label:not(.is-bordered-label),
+.el-descriptions__title {
+  color: var(--text-primary) !important;
+  border-color: var(--glass-border) !important;
+}
+
+.el-descriptions__content:not(.is-bordered-label) {
+  color: var(--text-secondary) !important;
 }
 
 /* 表格覆盖 */

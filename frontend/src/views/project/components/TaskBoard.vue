@@ -45,7 +45,7 @@
     </div>
 
     <!-- 创建/编辑任务对话框 -->
-    <el-dialog v-model="dialogVisible" :title="editingTask ? '编辑任务' : '新建任务'" width="500px">
+    <el-dialog v-model="dialogVisible" :title="editingTask ? '编辑任务' : '新建任务'" width="500px" class="glass-dialog">
       <el-form :model="taskForm" label-width="80px">
         <el-form-item label="任务标题">
           <el-input v-model="taskForm.title" placeholder="请输入任务标题" />

@@ -39,7 +39,7 @@
 
     <el-empty v-if="milestones.length === 0" description="暂无里程碑" />
 
-    <el-dialog v-model="dialogVisible" :title="editingMilestone ? '编辑里程碑' : '新建里程碑'" width="400px">
+    <el-dialog v-model="dialogVisible" :title="editingMilestone ? '编辑里程碑' : '新建里程碑'" width="400px" class="glass-dialog">
       <el-form :model="milestoneForm" label-width="80px">
         <el-form-item label="名称">
           <el-input v-model="milestoneForm.name" placeholder="请输入里程碑名称" />

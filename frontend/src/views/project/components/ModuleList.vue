@@ -36,7 +36,7 @@
       <el-empty v-if="modules.length === 0" description="暂无模块" />
     </div>
 
-    <el-dialog v-model="dialogVisible" :title="editingModule ? '编辑模块' : '新建模块'" width="400px">
+    <el-dialog v-model="dialogVisible" :title="editingModule ? '编辑模块' : '新建模块'" width="400px" class="glass-dialog">
       <el-form :model="moduleForm" label-width="80px">
         <el-form-item label="模块名称">
           <el-input v-model="moduleForm.name" placeholder="请输入模块名称" />
