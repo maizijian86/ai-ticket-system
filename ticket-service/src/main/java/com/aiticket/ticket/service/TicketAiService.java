@@ -32,7 +32,7 @@ public interface TicketAiService {
             请使用Markdown格式输出，结构清晰，便于开发者阅读。
             如果是JavaWeb项目，请特别关注Spring Boot、MyBatis、Vue等技术栈的建议。
             """)
-    String generatePrd(@MemoryId Long userId, @UserMessage String projectInfo);
+    String generatePrd(@MemoryId Object memoryId, @UserMessage String projectInfo);
 
     /**
      * 分析技术栈并给出建议
@@ -52,7 +52,7 @@ public interface TicketAiService {
             请给出具体的技术选型理由和版本建议。
             对于个人开发者或小团队，优先推荐成熟稳定的方案。
             """)
-    String analyzeTechStack(@MemoryId Long userId, @UserMessage String projectRequirements);
+    String analyzeTechStack(@MemoryId Object memoryId, @UserMessage String projectRequirements);
 
     /**
      * 拆解开发任务
@@ -73,7 +73,7 @@ public interface TicketAiService {
             ## 模块名称
             - [ ] 任务名称 | 优先级 | 预估工时 | 依赖任务
             """)
-    String decomposeTasks(@MemoryId Long userId, @UserMessage String prdContent);
+    String decomposeTasks(@MemoryId Object memoryId, @UserMessage String prdContent);
 
     /**
      * 估算项目工时和成本
@@ -95,7 +95,7 @@ public interface TicketAiService {
             - 学习新技术的时间成本
             - 联调和测试的时间
             """)
-    String estimateProject(@MemoryId Long userId, @UserMessage String projectDetails);
+    String estimateProject(@MemoryId Object memoryId, @UserMessage String projectDetails);
 
     /**
      * AI开发助手聊天 - 带上下文记忆
@@ -114,5 +114,5 @@ public interface TicketAiService {
 
             如果用户问的是与当前项目无关的问题，你也可以回答，但优先围绕项目开发相关的话题。
             """)
-    String chatWithDeveloper(@MemoryId Long ticketId, @UserMessage String userMessage);
+    String chatWithDeveloper(@MemoryId Object memoryId, @UserMessage String userMessage);
 }

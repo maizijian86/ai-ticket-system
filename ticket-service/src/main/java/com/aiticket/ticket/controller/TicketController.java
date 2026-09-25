@@ -6,6 +6,7 @@ import com.aiticket.ticket.dto.*;
 import com.aiticket.ticket.entity.Ticket;
 import com.aiticket.ticket.repository.TicketRepository;
 import com.aiticket.ticket.service.ChatService;
+import com.aiticket.ticket.service.ConversationMemoryManager;
 import com.aiticket.ticket.service.TicketAiService;
 import com.aiticket.ticket.service.TicketService;
 import jakarta.servlet.http.HttpServletResponse;
@@ -28,6 +29,7 @@ public class TicketController {
     private final ChatService chatService;
     private final TicketRepository ticketRepository;
     private final TicketAiService ticketAiService;
+    private final ConversationMemoryManager memoryManager;
 
     @PostMapping
     public Result<TicketDTO> createTicket(@Valid @RequestBody CreateTicketRequest request,
@@ -216,7 +218,7 @@ public class TicketController {
 
         // 调用AI分析技术栈
         try {
-            String techSuggestion = ticketAiService.analyzeTechStack(ticket.getCreatorId(), projectInfo.toString());
+            String techSuggestion = ticketAiService.analyzeTechStack(memoryManager.techStackScope(id), projectInfo.toString());
             ticket.setAiTechSuggestion(techSuggestion);
         } catch (Exception e) {
             log.error("分析技术栈失败", e);
@@ -225,7 +227,7 @@ public class TicketController {
 
         // 调用AI拆解任务
         try {
-            String taskBreakdown = ticketAiService.decomposeTasks(ticket.getCreatorId(), projectInfo.toString());
+            String taskBreakdown = ticketAiService.decomposeTasks(memoryManager.taskBreakdownScope(id), projectInfo.toString());
             ticket.setAiTaskBreakdown(taskBreakdown);
         } catch (Exception e) {
             log.error("拆解任务失败", e);
@@ -261,7 +263,7 @@ public class TicketController {
         }
 
         // 调用AI生成PRD
-        String prdContent = ticketAiService.generatePrd(ticket.getCreatorId(), projectInfo.toString());
+        String prdContent = ticketAiService.generatePrd(memoryManager.prdScope(id), projectInfo.toString());
 
         // 设置响应头，触发下载
         response.setContentType("text/markdown; charset=UTF-8");
@@ -361,7 +363,7 @@ public class TicketController {
         context.append("\n用户问题: ").append(userMessage);
 
         // 调用AI聊天（带上下文记忆）
-        String aiResponse = ticketAiService.chatWithDeveloper(id, context.toString());
+        String aiResponse = ticketAiService.chatWithDeveloper(memoryManager.chatScope(id), context.toString());
 
         // 保存到聊天记录
         ChatMessageDTO response = ChatMessageDTO.builder()
