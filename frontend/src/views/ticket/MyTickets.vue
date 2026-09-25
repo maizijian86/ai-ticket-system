@@ -41,6 +41,24 @@
             {{ formatDate(row.createdAt) }}
           </template>
         </el-table-column>
+        <el-table-column label="操作" width="130">
+          <template #default="{ row }">
+            <!--
+              验收入口开在发布者这一侧。此前整条交付/验收链路后端都有、前端零调用，
+              于是接单者交了货也没人能验收 —— 工单永远停在"待验收"。
+            -->
+            <el-button
+              v-if="row.status === 'PENDING_APPROVAL'"
+              type="primary"
+              size="small"
+              @click="openReviewDialog(row)"
+              class="btn-glass btn-glass-primary"
+            >
+              去验收
+            </el-button>
+            <span v-else class="no-action">-</span>
+          </template>
+        </el-table-column>
       </el-table>
 
       <el-pagination
@@ -54,13 +72,18 @@
         class="pagination glass-pagination"
       />
     </el-card>
+
+    <!-- 验收：通过 / 驳回。弹窗与工单详情页共用同一个组件 -->
+    <ReviewDeliveryDialog v-model="reviewVisible" :ticket="current" @done="loadTickets" />
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, reactive, onMounted } from 'vue'
 import { ticketApi } from '@/api'
+import ReviewDeliveryDialog from '@/components/ReviewDeliveryDialog.vue'
 import type { TicketDTO } from '@/types'
+import { getStatusLabel, getStatusType, getCategoryLabel, getCategoryType } from '@/utils/ticket-labels'
 
 const tickets = ref<TicketDTO[]>([])
 const loading = ref(false)
@@ -82,54 +105,18 @@ async function loadTickets() {
   }
 }
 
+// ---------------- 验收 ----------------
+
+const reviewVisible = ref(false)
+const current = ref<TicketDTO | null>(null)
+
+function openReviewDialog(ticket: TicketDTO) {
+  current.value = ticket
+  reviewVisible.value = true
+}
+
 function formatDate(date: string) {
   return new Date(date).toLocaleString('zh-CN')
-}
-
-function getCategoryType(category: string) {
-  const map: Record<string, string> = {
-    BUG: 'danger',
-    CONSULT: 'primary',
-    COMPLAINT: 'warning',
-    SUGGESTION: 'success',
-    OTHER: 'info'
-  }
-  return map[category] || 'info'
-}
-
-function getCategoryLabel(category: string) {
-  const map: Record<string, string> = {
-    BUG: 'Bug',
-    CONSULT: '咨询',
-    COMPLAINT: '投诉',
-    SUGGESTION: '建议',
-    OTHER: '其他'
-  }
-  return map[category] || category
-}
-
-function getStatusType(status: string) {
-  const map: Record<string, string> = {
-    OPEN: 'warning',
-    ACCEPTED: 'primary',
-    PENDING_APPROVAL: 'warning',
-    COMPLETED: 'success',
-    REJECTED: 'danger',
-    CLOSED: 'info'
-  }
-  return map[status] || 'info'
-}
-
-function getStatusLabel(status: string) {
-  const map: Record<string, string> = {
-    OPEN: '待接单',
-    ACCEPTED: '开发中',
-    PENDING_APPROVAL: '待验收',
-    COMPLETED: '已完成',
-    REJECTED: '已拒绝',
-    CLOSED: '已关闭'
-  }
-  return map[status] || status
 }
 
 onMounted(() => {
@@ -168,5 +155,9 @@ onMounted(() => {
 .pagination {
   margin-top: 20px;
   justify-content: flex-end;
+}
+
+.no-action {
+  color: var(--text-secondary);
 }
 </style>

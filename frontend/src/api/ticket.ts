@@ -8,7 +8,9 @@ import type {
   TicketStatsDTO,
   PageResult,
   ChatMessageDTO,
-  SendChatRequest
+  SendChatRequest,
+  CompleteTicketRequest,
+  ApproveTicketRequest
 } from '@/types'
 
 export const ticketApi = {
@@ -28,8 +30,17 @@ export const ticketApi = {
     return request.get<any, PageResult<TicketDTO>>('/v1/tickets/my', { params: { page, pageSize } })
   },
 
-  listPendingTickets(page: number = 1, pageSize: number = 10) {
-    return request.get<any, PageResult<TicketDTO>>('/v1/tickets/pending', { params: { page, pageSize } })
+  /**
+   * 「我接的单」—— 后端 /my/accepted = handler_id = 我，**不限状态**。
+   *
+   * 「不管完不完成」正是这个菜单要的语义。不要退回用 listTickets 表达它：
+   * 那条路会命中「只查大厅可见」谓词，而接单会把 is_visible 置为 false，
+   * 于是接过的单一律查不出来（这正是这个菜单此前恒为空的原因）。
+   */
+  listMyAcceptedTickets(page: number = 1, pageSize: number = 10) {
+    return request.get<any, PageResult<TicketDTO>>('/v1/tickets/my/accepted', {
+      params: { page, pageSize }
+    })
   },
 
   updateTicket(id: number, data: Partial<TicketDTO>) {
@@ -40,25 +51,9 @@ export const ticketApi = {
     return request.delete<any, void>(`/v1/tickets/${id}`)
   },
 
-  assignHandler(id: number, handlerId: number) {
-    return request.put<any, TicketDTO>(`/v1/tickets/${id}/assign`, { handlerId })
-  },
-
-  startProcessing(id: number) {
-    return request.put<any, TicketDTO>(`/v1/tickets/${id}/start`)
-  },
-
-  resolve(id: number) {
-    return request.put<any, TicketDTO>(`/v1/tickets/${id}/resolve`)
-  },
-
-  close(id: number) {
-    return request.put<any, TicketDTO>(`/v1/tickets/${id}/close`)
-  },
-
-  reopen(id: number) {
-    return request.put<any, TicketDTO>(`/v1/tickets/${id}/reopen`)
-  },
+  // 此处原有 assignHandler / startProcessing / resolve / close / reopen 五个封装。
+  // 对应的后端接口已删除（接单收敛到 pickupTicket 一处），它们在前端也从未被
+  // 调用过 —— 保留只会让"接单有多条路径"的错觉延续下去。
 
   addComment(id: number, data: AddCommentRequest) {
     return request.post<any, CommentDTO>(`/v1/tickets/${id}/comment`, data)
@@ -75,6 +70,16 @@ export const ticketApi = {
   // 接单
   pickupTicket(id: number) {
     return request.post<any, TicketDTO>(`/v1/tickets/${id}/pickup`)
+  },
+
+  // 交付 —— 接单者填交付凭证（仓库地址），工单进入待验收
+  completeTicket(id: number, data: CompleteTicketRequest) {
+    return request.post<any, TicketDTO>(`/v1/tickets/${id}/complete`, data)
+  },
+
+  // 验收 —— 发布者通过或驳回，驳回必须给理由
+  approveTicket(id: number, data: ApproveTicketRequest) {
+    return request.post<any, TicketDTO>(`/v1/tickets/${id}/approve`, data)
   },
 
   // AI开发分析

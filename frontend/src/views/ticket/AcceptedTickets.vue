@@ -57,6 +57,7 @@
 import { ref, reactive, onMounted } from 'vue'
 import { ticketApi } from '@/api'
 import type { TicketDTO } from '@/types'
+import { getStatusLabel, getStatusType, getCategoryLabel, getCategoryType } from '@/utils/ticket-labels'
 
 const tickets = ref<TicketDTO[]>([])
 const loading = ref(false)
@@ -70,14 +71,14 @@ const pagination = reactive({
 async function loadTickets() {
   loading.value = true
   try {
-    // 故意不传 handlerId：TicketService.listTickets 在状态为 ACCEPTED/COMPLETED、
-    // 且调用方没显式指定 handlerId/creatorId 时，会把 handlerId 自动收窄成当前用户。
-    // 这里一旦手动传了 handlerId，反而会绕过那段逻辑。
-    const res = await ticketApi.listTickets({
-      status: 'ACCEPTED',
-      page: pagination.page,
-      pageSize: pagination.pageSize
-    })
+    // 走 /my/accepted（handler_id = 我，不限状态），语义就是用户要的
+    // 「我接的单：不管完不完成」。
+    //
+    // 此前这里调的是 listTickets({ status: 'ACCEPTED' })，靠 listTickets 里那段
+    // 「没显式传 handlerId 就自动收窄成当前用户」来自证归属 —— 但那个查询同时带
+    // 着「只查大厅可见」谓词，而接单会把 is_visible 置为 false，两个条件互斥，
+    // 结果恒为空。菜单点开永远是空表，就是这个原因。
+    const res = await ticketApi.listMyAcceptedTickets(pagination.page, pagination.pageSize)
     tickets.value = res.data
     pagination.total = res.total
   } finally {
@@ -87,52 +88,6 @@ async function loadTickets() {
 
 function formatDate(date: string) {
   return new Date(date).toLocaleString('zh-CN')
-}
-
-function getCategoryType(category: string) {
-  const map: Record<string, string> = {
-    BUG: 'danger',
-    CONSULT: 'primary',
-    COMPLAINT: 'warning',
-    SUGGESTION: 'success',
-    OTHER: 'info'
-  }
-  return map[category] || 'info'
-}
-
-function getCategoryLabel(category: string) {
-  const map: Record<string, string> = {
-    BUG: 'Bug',
-    CONSULT: '咨询',
-    COMPLAINT: '投诉',
-    SUGGESTION: '建议',
-    OTHER: '其他'
-  }
-  return map[category] || category
-}
-
-function getStatusType(status: string) {
-  const map: Record<string, string> = {
-    OPEN: 'warning',
-    ACCEPTED: 'primary',
-    PENDING_APPROVAL: 'warning',
-    COMPLETED: 'success',
-    REJECTED: 'danger',
-    CLOSED: 'info'
-  }
-  return map[status] || 'info'
-}
-
-function getStatusLabel(status: string) {
-  const map: Record<string, string> = {
-    OPEN: '待接单',
-    ACCEPTED: '开发中',
-    PENDING_APPROVAL: '待验收',
-    COMPLETED: '已完成',
-    REJECTED: '已拒绝',
-    CLOSED: '已关闭'
-  }
-  return map[status] || status
 }
 
 onMounted(() => {

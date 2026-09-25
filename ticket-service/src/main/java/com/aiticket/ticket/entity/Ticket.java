@@ -159,13 +159,14 @@ public class Ticket extends BaseEntity {
 
     // ==================== 接单状态 ====================
 
-    // 接单者ID
-    @Column(name = "accepted_by")
-    private Long acceptedBy;
-
-    // 接单者姓名
-    @Column(name = "accepted_by_name", length = 100)
-    private String acceptedByName;
+    // 接单者就是上面的 handlerId / handlerName —— 全系统只此一处。
+    //
+    // 这里曾并存 accepted_by / accepted_by_name 两组字段，接单接口各写一组，
+    // 而所有列表与统计查的都是 handler_id，于是「接单」按钮点下去工单从大厅
+    // 下架了，却不在「我接的单」里。现已删除这两个字段。
+    //
+    // 物理列仍留在表里（ddl-auto: update 不会删列，19 行全是 NULL，无可迁移），
+    // 只是不再映射。db/migration.sql 与 README 里的相关记载是历史文档，未改动。
 
     // 是否在大厅显示（接单后隐藏）
     @Column(name = "is_visible")

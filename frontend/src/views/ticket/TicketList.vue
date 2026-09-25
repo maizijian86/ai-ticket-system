@@ -190,6 +190,7 @@ import { useTicketStore } from '@/stores'
 import { useAuthStore } from '@/stores/auth'
 import { Plus, Clock, Loading, CircleCheck, Finished, ArrowRight, Document } from '@element-plus/icons-vue'
 import type { TicketDTO, TicketStatsDTO, TicketStatus, TicketCategory, Priority } from '@/types'
+import { getStatusLabel, getStatusType } from '@/utils/ticket-labels'
 
 const router = useRouter()
 const ticketStore = useTicketStore()
@@ -214,13 +215,29 @@ const pagination = reactive({
   total: 0
 })
 
+/**
+ * 这三张统计卡（开发中 / 待验收 / 已完成）点下去，看到的是"我的"。
+ *
+ * 依据是卡片上的数字本身就来自 getStats(userId) → countByHandlerIdAndStatus，
+ * 即"我经手的"；列表若不跟着收窄，就会出现"卡片写 3、点开却空"的错位。
+ *
+ * 只有大厅（OPEN）维持全站语义，且不带 includeAll —— 那个状态本来就要
+ * 排除已被接走的单。
+ */
+const MY_STATUS_FILTERS: TicketStatus[] = ['ACCEPTED', 'PENDING_APPROVAL', 'COMPLETED']
+
 async function loadTickets() {
   loading.value = true
   try {
+    const mine = MY_STATUS_FILTERS.includes(filters.status as TicketStatus)
     const res = await ticketApi.listTickets({
       page: pagination.page,
       pageSize: pagination.pageSize,
       status: filters.status || undefined,
+      // includeAll 跳过「只查大厅可见」谓词：接单后 is_visible=false，
+      // 不传它，这三张卡点开永远是空表。它只管可见性，归属要显式给 handlerId。
+      handlerId: mine ? authStore.userInfo?.id : undefined,
+      includeAll: mine ? true : undefined,
       category: filters.category || undefined,
       priority: filters.priority || undefined,
       keyword: filters.keyword || undefined
@@ -276,30 +293,6 @@ function resetFilters() {
 
 function formatDate(date: string) {
   return new Date(date).toLocaleString('zh-CN')
-}
-
-function getStatusType(status: string) {
-  const map: Record<string, string> = {
-    OPEN: 'warning',
-    ACCEPTED: 'primary',
-    PENDING_APPROVAL: 'warning',
-    COMPLETED: 'success',
-    REJECTED: 'danger',
-    CLOSED: 'info'
-  }
-  return map[status] || 'info'
-}
-
-function getStatusLabel(status: string) {
-  const map: Record<string, string> = {
-    OPEN: '待接单',
-    ACCEPTED: '开发中',
-    PENDING_APPROVAL: '待验收',
-    COMPLETED: '已完成',
-    REJECTED: '已拒绝',
-    CLOSED: '已关闭'
-  }
-  return map[status] || status
 }
 
 watch(() => ticketStore.refreshTrigger, () => {

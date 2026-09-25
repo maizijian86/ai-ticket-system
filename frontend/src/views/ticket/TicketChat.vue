@@ -8,7 +8,17 @@
     </div>
 
     <div v-loading="loading" class="chat-container">
-      <template v-if="ticket">
+      <!--
+        私密沟通：只有发布者和接单者能看。
+        这是一道**纯前端**的 v-if，不是访问控制 —— 后端 /chat 接口目前没有
+        参与者校验，直接调接口仍然拿得到内容。这里只是把入口和界面藏起来，
+        让误入的人在正常使用中看不到别人的私聊。
+      -->
+      <el-card v-if="ticket && !isParticipant" class="glass-card-static">
+        <el-empty description="这是发布者与接单者之间的私密沟通，你不在其中" />
+      </el-card>
+
+      <template v-if="ticket && isParticipant">
         <!-- 工单信息卡片 -->
         <el-card class="ticket-info-card glass-card">
           <div class="ticket-info">
@@ -17,8 +27,8 @@
               <el-tag size="small" :type="getStatusType(ticket.status)">{{ getStatusLabel(ticket.status) }}</el-tag>
               <span class="separator">|</span>
               <span>发布者: {{ ticket.creatorName }}</span>
-              <span v-if="ticket.acceptedByName" class="separator">|</span>
-              <span v-if="ticket.acceptedByName">接单者: {{ ticket.acceptedByName }}</span>
+              <span v-if="ticket.handlerName" class="separator">|</span>
+              <span v-if="ticket.handlerName">接单者: {{ ticket.handlerName }}</span>
             </div>
           </div>
         </el-card>
@@ -82,11 +92,12 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, nextTick } from 'vue'
+import { ref, computed, onMounted, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { ticketApi } from '@/api'
 import { ElMessage } from 'element-plus'
 import { ArrowLeft, User, Monitor, ChatDotRound } from '@element-plus/icons-vue'
+import { getStatusLabel, getStatusType } from '@/utils/ticket-labels'
 import type { TicketDTO, ChatMessageDTO } from '@/types'
 
 const router = useRouter()
@@ -102,6 +113,12 @@ const messagesListRef = ref<HTMLElement>()
 
 // 获取当前用户ID（从localStorage或store获取）
 const currentUserId = ref(Number(localStorage.getItem('userId') || '1'))
+
+/** 只有发布者与接单者属于这次沟通（前端展示层的过滤，非访问控制） */
+const isParticipant = computed(() => {
+  if (!ticket.value) return false
+  return ticket.value.creatorId === currentUserId.value || ticket.value.handlerId === currentUserId.value
+})
 
 async function loadTicket() {
   loading.value = true
@@ -149,30 +166,6 @@ function scrollToBottom() {
 
 function formatTime(date: string) {
   return new Date(date).toLocaleString('zh-CN')
-}
-
-function getStatusType(status: string) {
-  const map: Record<string, string> = {
-    OPEN: 'warning',
-    ACCEPTED: 'primary',
-    PENDING_APPROVAL: 'warning',
-    COMPLETED: 'success',
-    REJECTED: 'danger',
-    CLOSED: 'info'
-  }
-  return map[status] || 'info'
-}
-
-function getStatusLabel(status: string) {
-  const map: Record<string, string> = {
-    OPEN: '待接单',
-    ACCEPTED: '开发中',
-    PENDING_APPROVAL: '待验收',
-    COMPLETED: '已完成',
-    REJECTED: '已拒绝',
-    CLOSED: '已关闭'
-  }
-  return map[status] || status
 }
 
 // 定时刷新消息

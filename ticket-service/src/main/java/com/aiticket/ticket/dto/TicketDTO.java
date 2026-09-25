@@ -98,11 +98,7 @@ public class TicketDTO {
 
     // ==================== 接单状态 ====================
 
-    // 接单者ID
-    private Long acceptedBy;
-
-    // 接单者姓名
-    private String acceptedByName;
+    // 接单者用 handlerId / handlerName，不再另设 acceptedBy（理由见 Ticket 实体）
 
     // 是否在大厅显示
     private Boolean isVisible;

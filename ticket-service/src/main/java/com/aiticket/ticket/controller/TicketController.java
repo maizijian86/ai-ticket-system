@@ -63,14 +63,10 @@ public class TicketController {
         return Result.success(ticketService.listMyTickets(userId, page, pageSize));
     }
 
-    @GetMapping("/pending")
-    public Result<PageResult<TicketDTO>> listPendingTickets(
-            @RequestParam(defaultValue = "1") int page,
-            @RequestParam(defaultValue = "10") int pageSize,
-            @RequestHeader(value = "X-User-Id", required = false) Long userId) {
-        if (userId == null) userId = 1L;
-        return Result.success(ticketService.listPendingTickets(userId, page, pageSize));
-    }
+    // 此处原有 GET /pending。它返回的是「handler_id = 我 且 status = ACCEPTED」，
+    // 与 /my/accepted 含义重叠，但前端「待处理」菜单要的是三种状态（含待验收、
+    // 被驳回），单状态接口表达不了。前端改走 listTickets + statuses 多状态筛选，
+    // 这个接口已无调用方，删除。
 
     @GetMapping("/my/accepted")
     public Result<PageResult<TicketDTO>> listMyAcceptedTickets(
@@ -100,21 +96,9 @@ public class TicketController {
         return Result.success();
     }
 
-    @PutMapping("/{id}/assign")
-    public Result<TicketDTO> assignHandler(@PathVariable Long id,
-                                            @Valid @RequestBody AssignHandlerRequest request) {
-        return Result.success(ticketService.assignHandler(id, request.getHandlerId(), null));
-    }
-
-    @PutMapping("/{id}/start")
-    public Result<TicketDTO> startProcessing(@PathVariable Long id) {
-        return Result.success(ticketService.startProcessing(id));
-    }
-
-    @PutMapping("/{id}/resolve")
-    public Result<TicketDTO> resolve(@PathVariable Long id) {
-        return Result.success(ticketService.resolve(id));
-    }
+    // 此处原有 PUT /{id}/assign、/{id}/start、/{id}/resolve —— 三条废弃的接单/流转
+    // 路径，零校验、可重复调用、可把他人名下的工单改到自己名下，正是"接单这件事
+    // 有三条路径"里的第三条。接单现已收敛到 POST /{id}/pickup 一处，全部删除。
 
     @PutMapping("/{id}/close")
     public Result<TicketDTO> close(@PathVariable Long id) {
@@ -141,15 +125,8 @@ public class TicketController {
         return Result.success(ticketService.getComments(id));
     }
 
-    // Accept ticket (handler picks up)
-    @PostMapping("/{id}/accept")
-    public Result<TicketDTO> acceptTicket(@PathVariable Long id,
-                                          @RequestHeader(value = "X-User-Id", required = false) Long userId,
-                                          @RequestHeader(value = "X-User-Name", required = false) String username) {
-        if (userId == null) userId = 1L;
-        if (username == null) username = "anonymous";
-        return Result.success(ticketService.acceptTicket(id, userId, username));
-    }
+    // 此处原有 POST /{id}/accept —— 第二条接单路径（与 /pickup 各写一组字段，
+    // 于是接单后工单从大厅下架却不在「我接的单」里）。已删除，只留 /pickup。
 
     // Complete ticket (handler submits for approval)
     @PostMapping("/{id}/complete")
@@ -268,6 +245,7 @@ public class TicketController {
         // 设置响应头，触发下载
         response.setContentType("text/markdown; charset=UTF-8");
         response.setCharacterEncoding("UTF-8");
+
         String fileName = "PRD_" + ticket.getTitle() + "_" + System.currentTimeMillis() + ".md";
         response.setHeader("Content-Disposition", "attachment; filename=\"" + fileName + "\"");
 
@@ -278,7 +256,11 @@ public class TicketController {
     }
 
     /**
-     * 接单 - 接单后工单从大厅消失，发布者收到通知
+     * 接单 —— 全系统唯一的接单入口，接单后工单从大厅消失。
+     *
+     * 校验与状态变更都在 TicketService.pickupTicket 里（那里才拿得到事务），
+     * 这里只做参数兜底和转发。此前这段逻辑内联在控制器里，既不参与事务，
+     * 又和 /assign、/accept 各写一组字段，是"接单三条路径"的根源。
      */
     @PostMapping("/{id}/pickup")
     public Result<TicketDTO> pickupTicket(@PathVariable Long id,
@@ -286,39 +268,8 @@ public class TicketController {
                                           @RequestHeader(value = "X-User-Name", required = false) String username) {
         if (userId == null) userId = 1L;
         if (username == null) username = "anonymous";
-
         log.info("用户{}接单工单: {}", username, id);
-        Ticket ticket = ticketRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("工单不存在"));
-
-        // 检查是否已接单
-        if (ticket.getAcceptedBy() != null) {
-            throw new RuntimeException("该工单已被接单");
-        }
-
-        // 检查是否是自己的工单
-        if (ticket.getCreatorId().equals(userId)) {
-            throw new RuntimeException("不能接自己的工单");
-        }
-
-        // 设置接单信息
-        ticket.setAcceptedBy(userId);
-        ticket.setAcceptedByName(username);
-        ticket.setIsVisible(false);  // 从大厅隐藏
-        ticket.setStatus(com.aiticket.common.enums.TicketStatus.ACCEPTED);
-        ticket.setAcceptedAt(java.time.LocalDateTime.now());
-
-        ticketRepository.save(ticket);
-
-        // 发送系统消息通知发布者
-        try {
-            chatService.sendMessage(id, userId, username, "HANDLER",
-                    "我已接单，开始为您开发项目！如有任何问题请随时沟通。");
-        } catch (Exception e) {
-            log.error("发送接单通知失败", e);
-        }
-
-        return Result.success(ticketService.getTicket(id));
+        return Result.success(ticketService.pickupTicket(id, userId, username));
     }
 
     // ==================== AI聊天接口 ====================

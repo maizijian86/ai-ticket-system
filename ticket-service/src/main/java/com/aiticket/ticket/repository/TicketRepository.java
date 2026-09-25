@@ -34,10 +34,6 @@ public interface TicketRepository extends JpaRepository<Ticket, Long>, JpaSpecif
     // Find by priority
     Page<Ticket> findByPriorityAndDeletedAtIsNull(Priority priority, Pageable pageable);
 
-    // Open tickets (unassigned)
-    @Query("SELECT t FROM Ticket t WHERE t.handlerId IS NULL AND t.deletedAt IS NULL AND t.status = 'OPEN'")
-    Page<Ticket> findOpenTickets(Pageable pageable);
-
     // Count by status
     long countByStatusAndDeletedAtIsNull(TicketStatus status);
 
@@ -48,23 +44,17 @@ public interface TicketRepository extends JpaRepository<Ticket, Long>, JpaSpecif
     // Count by handler
     long countByHandlerIdAndStatusAndDeletedAtIsNull(Long handlerId, TicketStatus status);
 
-    // Update handler
-    @Modifying
-    @Query("UPDATE Ticket t SET t.handlerId = :handlerId, t.handlerName = :handlerName, t.updatedAt = :now WHERE t.id = :ticketId")
-    int assignHandler(@Param("ticketId") Long ticketId,
-                      @Param("handlerId") Long handlerId,
-                      @Param("handlerName") String handlerName,
-                      @Param("now") LocalDateTime now);
-
-    // Update status to processing
-    @Modifying
-    @Query("UPDATE Ticket t SET t.status = 'ACCEPTED', t.updatedAt = :now WHERE t.id = :ticketId AND t.status = 'OPEN'")
-    int startProcessing(@Param("ticketId") Long ticketId, @Param("now") LocalDateTime now);
-
-    // Resolve ticket
-    @Modifying
-    @Query("UPDATE Ticket t SET t.status = 'COMPLETED', t.resolvedAt = :now, t.updatedAt = :now WHERE t.id = :ticketId")
-    int resolve(@Param("ticketId") Long ticketId, @Param("now") LocalDateTime now);
+    // 此处原有 5 个 @Modifying 批量 UPDATE（assignHandler / startProcessing /
+    // resolve / close / reopen）。它们**从未被调用过** —— TicketService 里所有
+    // 状态变更走的都是 findById + 改实体 + save()。已删掉前三个：
+    // assignHandler 那条正是"接单有三条路径"里的第三条（零校验、可重复点），
+    // 接单现已收敛到 TicketService.pickupTicket 一处。
+    //
+    // close / reopen 留在下面没动：它们同样是没人调用的死代码，但不属于这次
+    // 要收敛的接单路径，留给下次清理，免得这个提交里混进退无用代码的动作。
+    //
+    // 这些批量 UPDATE 之所以不该复活：它们绕过实体回调与审计字段，状态字段的
+    // 唯一写入点应该只有 TicketService。
 
     // Close ticket
     @Modifying

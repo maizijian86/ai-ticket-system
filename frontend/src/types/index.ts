@@ -106,9 +106,15 @@ export interface TicketDTO {
   aiTechSuggestion?: string
   aiTaskBreakdown?: string
   aiEstimatedHours?: number
-  // 接单状态
-  acceptedBy?: number
-  acceptedByName?: string
+  // 交付与验收。后端一直有这几个字段并一直在序列化，这里以前漏了 ——
+  // 于是「交付凭证」「驳回理由」在类型上根本不存在，页面也就没地方显示它们。
+  completionProof?: string
+  rejectionReason?: string
+  acceptedAt?: string
+  completedAt?: string
+  // 接单者就是 handlerId / handlerName（上面已有）。
+  // 这里原有 acceptedBy / acceptedByName —— 后端已删除这两个字段，
+  // 保留它们会让 TS 静默通过 `ticket.acceptedByName`，运行时永远是 undefined。
   isVisible?: boolean
 }
 
@@ -152,13 +158,46 @@ export interface CreateTicketRequest {
 
 export interface TicketQueryRequest {
   creatorId?: number
+  excludeCreatorId?: number
   handlerId?: number
   status?: TicketStatus
+  /**
+   * 多状态筛选，与 status 互斥（后端 buildSpecification 里 statuses 优先）。
+   *
+   * 用**逗号拼接的字符串**：statuses: 'ACCEPTED,REJECTED'。这是后端文档化、
+   * 且已验证可行的一种形式。也正因如此这里声明成 string 而不是 TicketStatus[] ——
+   * 传数组时能不能用取决于客户端怎么序列化（axios 会把方括号转义成 %5B%5D，
+   * 后端碰巧能绑上；手写的未转义 ?statuses[]=A 则会被 Tomcat 直接 400 掉），
+   * 不值得依赖。类型收成 string，让"该传什么"在编译期就只有一个答案。
+   */
+  statuses?: string
   category?: TicketCategory
   priority?: Priority
   keyword?: string
+  /**
+   * true = 跳过「只查大厅可见工单」那条谓词。
+   *
+   * 查「我接的单」「待处理」这类列表时必须传 true —— 接单会把 is_visible 置为
+   * false，不传就一条都查不到。它只管可见性，不管归属：范围仍由 handlerId /
+   * creatorId 决定，两个要一起传。
+   */
+  includeAll?: boolean
   page?: number
   pageSize?: number
+}
+
+/** 交付 —— 接单者提交交付凭证（仓库地址），工单转入待验收。 */
+export interface CompleteTicketRequest {
+  /** 交付凭证，通常是一个仓库地址 */
+  completionProof: string
+}
+
+/** 验收 —— 发布者通过或驳回。 */
+export interface ApproveTicketRequest {
+  approved: boolean
+  /** approved = false 时必填（后端 ApproveTicketRequest 的注释如此约定，
+   *  但不加校验，所以前端必须自己拦一道） */
+  reason?: string
 }
 
 /**

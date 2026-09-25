@@ -38,7 +38,7 @@
             </div>
             <div class="meta-item">
               <span class="label">接单人</span>
-              <span>{{ ticket.acceptedByName || '待接单' }}</span>
+              <span>{{ ticket.handlerName || '待接单' }}</span>
             </div>
             <div class="meta-item">
               <span class="label">预算</span>
@@ -72,23 +72,48 @@
           <!-- 操作按钮 -->
           <div class="ticket-actions">
             <!-- 接单按钮 - 只有非发布者且工单未接单时显示 -->
+            <!--
+              判定用 handlerId 而不是 acceptedBy。后者是另一条已删除的接单路径写的字段，
+              与 handlerId 各写一个，于是"已接单"的工单在这里仍然显示接单按钮。
+              三个条件缺一不可：没人接 + 状态为 OPEN + 我不是发布者。
+            -->
             <el-button
-              v-if="!ticket.acceptedBy && ticket.status === 'OPEN'"
+              v-if="canPickup"
               type="success"
-              @click="handlePickup"
+              @click="openPickupDialog"
               class="btn-glass btn-glass-success"
             >
               <el-icon><Check /></el-icon> 接单
             </el-button>
 
-            <!-- 进入聊天 - 接单后显示 -->
+            <!-- 进入聊天 - 接单后显示；归档后私聊已被清空，入口一并撤掉 -->
             <el-button
-              v-if="ticket.acceptedBy"
+              v-if="ticket.handlerId && !isArchived"
               type="primary"
               @click="router.push(`/tickets/${ticket.id}/chat`)"
               class="btn-glass btn-glass-primary"
             >
               <el-icon><ChatDotRound /></el-icon> 进入聊天
+            </el-button>
+
+            <!-- 去完成 - 接单人推进自己的单 -->
+            <el-button
+              v-if="isHandler && (ticket.status === 'ACCEPTED' || ticket.status === 'REJECTED')"
+              type="primary"
+              @click="openCompleteDialog"
+              class="btn-glass btn-glass-primary"
+            >
+              <el-icon><Finished /></el-icon> 去完成
+            </el-button>
+
+            <!-- 验收 - 发布者验收待验收的交付 -->
+            <el-button
+              v-if="isCreator && ticket.status === 'PENDING_APPROVAL'"
+              type="success"
+              @click="openReviewDialog"
+              class="btn-glass btn-glass-success"
+            >
+              <el-icon><CircleCheck /></el-icon> 验收
             </el-button>
 
             <el-button @click="router.push(`/tickets/${ticket.id}/edit`)" class="btn-glass">
@@ -105,6 +130,36 @@
               <el-icon v-if="!analyzing"><MagicStick /></el-icon>
               AI开发分析
             </el-button>
+          </div>
+        </el-card>
+
+        <!-- 交付凭证 - 接单者提交后显示 -->
+        <el-card v-if="ticket.completionProof" class="ticket-content-card glass-card">
+          <div class="ticket-content">
+            <h3>交付凭证</h3>
+            <div class="content-text">
+              <!--
+                只做纯文本插值，绝不 v-html：这是接单者填的自由文本、会被存库，
+                用 v-html 渲染等于把存储型 XSS 直接送到发布者浏览器。
+                渲染成链接时也只认 http(s)，挡掉 javascript: 之类的伪协议。
+              -->
+              <a
+                v-if="/^https?:\/\/\S+/i.test(ticket.completionProof.trim())"
+                :href="ticket.completionProof"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="proof-link"
+              >{{ ticket.completionProof }}</a>
+              <span v-else>{{ ticket.completionProof }}</span>
+            </div>
+          </div>
+        </el-card>
+
+        <!-- 驳回理由 - 让接单者知道要改什么 -->
+        <el-card v-if="ticket.status === 'REJECTED' && ticket.rejectionReason" class="ticket-content-card glass-card">
+          <div class="ticket-content">
+            <h3>驳回理由</h3>
+            <div class="content-text">{{ ticket.rejectionReason }}</div>
           </div>
         </el-card>
 
@@ -246,21 +301,91 @@
         </el-card>
       </template>
     </div>
+
+    <!--
+      接单二次确认。此前是一个 ElMessageBox.confirm —— 只有一个"确定/取消"，
+      发布者、预算、截止日期这些真该看一眼的信息全在弹窗外，点错了也没有退路。
+      接单是不可逆的（接了就下架、就归属到你名下），值得一个正经的确认框。
+    -->
+    <el-dialog
+      v-model="pickupVisible"
+      title="确认接单"
+      width="520px"
+      class="glass-dialog"
+      :close-on-click-modal="false"
+    >
+      <div v-if="ticket" class="dialog-body">
+        <div class="summary">
+          <div class="summary-row">
+            <span class="summary-label">工单</span>
+            <span class="summary-value">{{ ticket.title }}</span>
+          </div>
+          <div class="summary-row">
+            <span class="summary-label">发布者</span>
+            <span class="summary-value">{{ ticket.creatorName || '-' }}</span>
+          </div>
+          <div class="summary-row">
+            <span class="summary-label">预算</span>
+            <span class="summary-value">{{ ticket.budget ? `¥${ticket.budget}` : '面议' }}</span>
+          </div>
+          <div class="summary-row">
+            <span class="summary-label">截止日期</span>
+            <span class="summary-value">{{ ticket.deadline ? formatDate(ticket.deadline) : '待定' }}</span>
+          </div>
+          <div class="summary-row">
+            <span class="summary-label">技术栈</span>
+            <span class="summary-value">{{ ticket.techStack || '未指定' }}</span>
+          </div>
+        </div>
+
+        <el-alert type="warning" :closable="false" class="archive-note">
+          <template #title>接单后</template>
+          工单会立即从大厅下架并归属到你名下，其他开发者将无法再接。此后你需要
+          主动推进并在「待处理」里提交交付凭证，发布者验收通过才算完成。
+        </el-alert>
+
+        <el-checkbox v-model="pickupConfirmed" class="pickup-confirm">
+          我已确认需求范围与截止时间，愿意承接此项目
+        </el-checkbox>
+      </div>
+
+      <template #footer>
+        <el-button @click="pickupVisible = false" class="btn-glass">取消</el-button>
+        <el-button
+          type="success"
+          :disabled="!pickupConfirmed"
+          :loading="pickingUp"
+          @click="confirmPickup"
+          class="btn-glass btn-glass-success"
+        >
+          确认接单
+        </el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 去完成 / 验收：与「待处理」「我的工单」共用同一对组件 -->
+    <CompleteDeliveryDialog v-model="completeVisible" :ticket="ticket || null" @done="reload" />
+    <ReviewDeliveryDialog v-model="reviewVisible" :ticket="ticket || null" @done="reload" />
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, nextTick } from 'vue'
+import { ref, computed, onMounted, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { ticketApi } from '@/api'
 import { useTicketStore } from '@/stores'
-import { ElMessage, ElMessageBox } from 'element-plus'
-import { ArrowLeft, ChatDotRound, User, Star, MagicStick, Check, Download } from '@element-plus/icons-vue'
+import { useAuthStore } from '@/stores/auth'
+import { ElMessage } from 'element-plus'
+import { ArrowLeft, ChatDotRound, User, Star, MagicStick, Check, Download, Finished, CircleCheck } from '@element-plus/icons-vue'
+import CompleteDeliveryDialog from '@/components/CompleteDeliveryDialog.vue'
+import ReviewDeliveryDialog from '@/components/ReviewDeliveryDialog.vue'
 import type { TicketDTO, CommentDTO } from '@/types'
+import { getStatusLabel, getStatusType, getCategoryLabel, getCategoryType } from '@/utils/ticket-labels'
 
 const router = useRouter()
 const route = useRoute()
 const ticketStore = useTicketStore()
+const authStore = useAuthStore()
 
 const ticket = ref<TicketDTO>()
 const comments = ref<CommentDTO[]>([])
@@ -277,6 +402,27 @@ const aiChatInput = ref('')
 const aiChatLoading = ref(false)
 const aiChatMessagesRef = ref<HTMLElement>()
 
+// ---------------- 角色与状态判定 ----------------
+
+const myId = computed(() => authStore.userInfo?.id)
+
+/** 接单入口：没人接 + 状态为 OPEN + 我不是发布者。三者缺一不可。 */
+const canPickup = computed(
+  () =>
+    !!ticket.value &&
+    !ticket.value.handlerId &&
+    ticket.value.status === 'OPEN' &&
+    ticket.value.creatorId !== myId.value
+)
+
+const isCreator = computed(() => !!ticket.value && ticket.value.creatorId === myId.value)
+const isHandler = computed(() => !!ticket.value && ticket.value.handlerId === myId.value)
+
+/** 归档态：验收通过后私聊记录已被删除，聊天入口要跟着消失 */
+const isArchived = computed(
+  () => !!ticket.value && ['COMPLETED', 'CLOSED'].includes(ticket.value.status)
+)
+
 async function loadTicket() {
   loading.value = true
   try {
@@ -288,16 +434,48 @@ async function loadTicket() {
   }
 }
 
-async function handlePickup() {
-  if (!ticket.value) return
+// ---------------- 接单 ----------------
+
+const pickupVisible = ref(false)
+const pickupConfirmed = ref(false)
+const pickingUp = ref(false)
+
+function openPickupDialog() {
+  pickupConfirmed.value = false
+  pickupVisible.value = true
+}
+
+async function confirmPickup() {
+  if (!ticket.value || !pickupConfirmed.value) return
+  pickingUp.value = true
   try {
-    await ElMessageBox.confirm('确定要接这个项目吗？接单后将与发布者开始协作。', '确认接单')
     ticket.value = await ticketApi.pickupTicket(ticket.value.id)
+    pickupVisible.value = false
     ticketStore.triggerRefresh()
     ElMessage.success('接单成功！请进入聊天与发布者沟通')
   } catch {
-    // cancelled
+    // 错误提示由 axios 拦截器统一弹出
+  } finally {
+    pickingUp.value = false
   }
+}
+
+// ---------------- 去完成 / 验收 ----------------
+
+const completeVisible = ref(false)
+const reviewVisible = ref(false)
+
+function openCompleteDialog() {
+  completeVisible.value = true
+}
+
+function openReviewDialog() {
+  reviewVisible.value = true
+}
+
+function reload() {
+  loadTicket()
+  ticketStore.triggerRefresh()
 }
 
 async function handleAiAnalysis() {
@@ -378,28 +556,6 @@ function formatDate(date: string) {
   return new Date(date).toLocaleString('zh-CN')
 }
 
-function getCategoryType(category: string) {
-  const map: Record<string, string> = {
-    BUG: 'danger',
-    CONSULT: 'primary',
-    COMPLAINT: 'warning',
-    SUGGESTION: 'success',
-    OTHER: 'info'
-  }
-  return map[category] || 'info'
-}
-
-function getCategoryLabel(category: string) {
-  const map: Record<string, string> = {
-    BUG: 'Bug',
-    CONSULT: '咨询',
-    COMPLAINT: '投诉',
-    SUGGESTION: '建议',
-    OTHER: '其他'
-  }
-  return map[category] || category
-}
-
 function getPriorityType(priority: string) {
   const map: Record<string, string> = {
     P0: 'danger',
@@ -410,30 +566,6 @@ function getPriorityType(priority: string) {
   return map[priority] || 'info'
 }
 
-function getStatusType(status: string) {
-  const map: Record<string, string> = {
-    OPEN: 'warning',
-    ACCEPTED: 'primary',
-    PENDING_APPROVAL: 'warning',
-    COMPLETED: 'success',
-    REJECTED: 'danger',
-    CLOSED: 'info'
-  }
-  return map[status] || 'info'
-}
-
-function getStatusLabel(status: string) {
-  const map: Record<string, string> = {
-    OPEN: '待接单',
-    ACCEPTED: '开发中',
-    PENDING_APPROVAL: '待验收',
-    COMPLETED: '已完成',
-    REJECTED: '已拒绝',
-    CLOSED: '已关闭'
-  }
-  return map[status] || status
-}
-
 onMounted(() => {
   loadTicket()
 })
@@ -442,6 +574,48 @@ onMounted(() => {
 <style scoped>
 .page-header {
   margin-bottom: 20px;
+}
+
+.proof-link {
+  color: var(--accent-info);
+  text-decoration: none;
+  word-break: break-all;
+}
+
+.proof-link:hover {
+  text-decoration: underline;
+}
+
+.summary {
+  margin-bottom: 16px;
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: var(--glass-bg, rgba(255, 255, 255, 0.05));
+}
+
+.summary-row {
+  display: flex;
+  gap: 12px;
+  line-height: 1.9;
+  font-size: 13px;
+}
+
+.summary-label {
+  flex: 0 0 68px;
+  color: var(--text-secondary);
+}
+
+.summary-value {
+  color: var(--text-primary);
+  word-break: break-all;
+}
+
+.archive-note {
+  margin-top: 4px;
+}
+
+.pickup-confirm {
+  margin-top: 14px;
 }
 
 .ticket-header-card {
