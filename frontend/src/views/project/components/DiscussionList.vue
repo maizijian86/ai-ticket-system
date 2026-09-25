@@ -128,7 +128,7 @@ onMounted(() => {
 
 .comment-item {
   padding: 16px;
-  background: #f5f7fa;
+  background: var(--glass-bg);
   border-radius: 8px;
 }
 
@@ -141,16 +141,16 @@ onMounted(() => {
 
 .comment-user {
   font-weight: 600;
-  color: #303133;
+  color: var(--text-primary);
 }
 
 .comment-time {
   font-size: 12px;
-  color: #909399;
+  color: var(--text-secondary);
 }
 
 .comment-content {
-  color: #606266;
+  color: var(--text-secondary);
   line-height: 1.6;
   white-space: pre-wrap;
 }

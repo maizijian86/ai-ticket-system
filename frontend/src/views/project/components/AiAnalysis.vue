@@ -103,12 +103,12 @@ ${(data.coreFeatures || []).map((f: string, i: number) => `  ${i + 1}. ${f}`).jo
   font-family: inherit;
   font-size: 13px;
   line-height: 1.6;
-  color: #303133;
+  color: var(--text-primary);
 }
 
 .risk-content {
   font-size: 13px;
   line-height: 1.6;
-  color: #606266;
+  color: var(--text-secondary);
 }
 </style>

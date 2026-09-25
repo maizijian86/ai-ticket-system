@@ -209,11 +209,11 @@ onMounted(() => {
 
 .module-header h4 {
   margin: 0;
-  color: #303133;
+  color: var(--text-primary);
 }
 
 .module-desc {
-  color: #606266;
+  color: var(--text-secondary);
   font-size: 13px;
   margin: 0 0 12px 0;
 }
@@ -226,16 +226,16 @@ onMounted(() => {
   display: flex;
   justify-content: space-between;
   font-size: 12px;
-  color: #909399;
+  color: var(--text-secondary);
   margin-bottom: 4px;
 }
 
 .more-btn {
   cursor: pointer;
-  color: #909399;
+  color: var(--text-secondary);
 }
 
 .more-btn:hover {
-  color: #409eff;
+  color: var(--accent-primary);
 }
 </style>

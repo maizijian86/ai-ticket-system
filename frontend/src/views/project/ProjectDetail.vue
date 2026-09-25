@@ -201,20 +201,20 @@ onMounted(() => {
 
 .header-left h1 {
   margin: 8px 0;
-  color: #303133;
+  color: var(--text-primary);
 }
 
 .header-meta {
   display: flex;
   gap: 12px;
   align-items: center;
-  color: #909399;
+  color: var(--text-secondary);
   font-size: 13px;
 }
 
 .project-type {
   padding: 2px 8px;
-  background: #f5f7fa;
+  background: var(--glass-bg-hover);
   border-radius: 4px;
 }
 
@@ -233,11 +233,11 @@ onMounted(() => {
 .progress-value {
   font-size: 24px;
   font-weight: 600;
-  color: #303133;
+  color: var(--text-primary);
 }
 
 .progress-label {
-  color: #909399;
+  color: var(--text-secondary);
   font-size: 13px;
 }
 </style>

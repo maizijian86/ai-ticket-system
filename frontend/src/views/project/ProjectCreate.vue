@@ -158,20 +158,20 @@ const resetForm = () => {
 
 .ai-tip {
   margin-left: 12px;
-  color: #909399;
+  color: var(--text-secondary);
   font-size: 13px;
 }
 
 .ai-result-card,
 .task-result-card {
   margin-top: 16px;
-  background: #f5f7fa;
+  background: var(--glass-bg);
 }
 
 .ai-result-title,
 .task-result-title {
   font-weight: 600;
-  color: #409eff;
+  color: var(--accent-primary);
 }
 
 .ai-actions {
@@ -183,17 +183,17 @@ const resetForm = () => {
 .module-item {
   margin-bottom: 20px;
   padding: 12px;
-  background: white;
+  background: var(--glass-bg);
   border-radius: 6px;
 }
 
 .module-item h4 {
   margin: 0 0 8px 0;
-  color: #303133;
+  color: var(--text-primary);
 }
 
 .module-desc {
-  color: #606266;
+  color: var(--text-secondary);
   font-size: 13px;
   margin: 0 0 12px 0;
 }
@@ -208,17 +208,17 @@ const resetForm = () => {
   display: flex;
   justify-content: space-between;
   padding: 8px 12px;
-  background: #f5f7fa;
+  background: var(--glass-bg);
   border-radius: 4px;
   margin-bottom: 6px;
 }
 
 .task-title {
-  color: #303133;
+  color: var(--text-primary);
 }
 
 .task-hours {
-  color: #909399;
+  color: var(--text-secondary);
   font-size: 13px;
 }
 </style>

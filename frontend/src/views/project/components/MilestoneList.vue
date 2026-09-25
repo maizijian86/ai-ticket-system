@@ -221,11 +221,11 @@ onMounted(() => {
 
 .milestone-header h4 {
   margin: 0;
-  color: #303133;
+  color: var(--text-primary);
 }
 
 .milestone-desc {
-  color: #606266;
+  color: var(--text-secondary);
   font-size: 13px;
   margin: 0 0 12px 0;
 }

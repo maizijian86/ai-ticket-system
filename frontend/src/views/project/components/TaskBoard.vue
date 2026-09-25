@@ -71,7 +71,7 @@
         </el-form-item>
         <el-form-item label="预估工时">
           <el-input-number v-model="taskForm.estimatedHours" :min="0.5" :step="0.5" />
-          <span style="margin-left: 8px; color: #909399;">小时</span>
+          <span style="margin-left: 8px; color: var(--text-secondary);">小时</span>
         </el-form-item>
       </el-form>
       <template #footer>
@@ -262,7 +262,7 @@ onMounted(() => {
 }
 
 .board-column {
-  background: #f5f7fa;
+  background: var(--glass-bg);
   border-radius: 8px;
   padding: 12px;
   min-height: 400px;
@@ -279,19 +279,19 @@ onMounted(() => {
 
 .column-title {
   font-weight: 600;
-  color: #303133;
+  color: var(--text-primary);
 }
 
 .column-count {
-  background: #e4e7ed;
+  background: var(--glass-bg-hover);
   padding: 2px 8px;
   border-radius: 10px;
   font-size: 12px;
-  color: #606266;
+  color: var(--text-secondary);
 }
 
 .task-card {
-  background: white;
+  background: var(--glass-bg);
   border-radius: 6px;
   padding: 12px;
   margin-bottom: 8px;
@@ -312,19 +312,19 @@ onMounted(() => {
 
 .task-type {
   font-size: 11px;
-  color: #909399;
+  color: var(--text-secondary);
 }
 
 .task-title {
   margin: 0 0 6px 0;
   font-size: 14px;
-  color: #303133;
+  color: var(--text-primary);
 }
 
 .task-desc {
   margin: 0 0 8px 0;
   font-size: 12px;
-  color: #909399;
+  color: var(--text-secondary);
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
@@ -339,15 +339,15 @@ onMounted(() => {
 
 .task-hours {
   font-size: 12px;
-  color: #409eff;
+  color: var(--accent-primary);
 }
 
 .more-btn {
   cursor: pointer;
-  color: #909399;
+  color: var(--text-secondary);
 }
 
 .more-btn:hover {
-  color: #409eff;
+  color: var(--accent-primary);
 }
 </style>
