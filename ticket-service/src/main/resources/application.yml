@@ -8,6 +8,10 @@ spring:
   application:
     name: ticket-service
 
+  # 本地密钥文件（已在 .gitignore 中排除），文件不存在时静默跳过
+  config:
+    import: optional:classpath:application-secret.yml
+
   datasource:
     url: jdbc:mysql://localhost:3306/aiticket?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
     username: aiticket
@@ -16,7 +20,7 @@ spring:
 
   jpa:
     hibernate:
-      ddl-auto: validate
+      ddl-auto: update
     show-sql: false
     properties:
       hibernate:
@@ -43,12 +47,18 @@ ai-service:
   url: http://127.0.0.1:8083
 
 # LangChain4j配置
+#
+# 注意：本服务用 OpenAiChatModel（OpenAI 兼容协议），base-url 必须是
+# https://api.deepseek.com。原配置写的 https://api.xiaomimimo.com/anthropic
+# 会让请求打到 /anthropic/chat/completions 并返回 404 —— 这正是"下载PRD"
+# 一直失败的原因。
+# 密钥来自 application-secret.yml（gitignored）或环境变量 DEEPSEEK_API_KEY
 langchain4j:
   open-ai:
     chat-model:
-      api-key: sk-sfs0me180haxrdja3fl3ma9uyqtv00h8h6xu23vu6ko0ig4e
-      model-name: mimo-v2.5
-      base-url: https://api.xiaomimimo.com/anthropic
+      base-url: ${DEEPSEEK_BASE_URL:https://api.deepseek.com}
+      api-key: ${DEEPSEEK_API_KEY:}
+      model-name: ${DEEPSEEK_MODEL:deepseek-v4-pro}
       log-requests: true
       log-responses: true
 

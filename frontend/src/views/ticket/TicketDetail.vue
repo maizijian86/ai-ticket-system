@@ -60,8 +60,12 @@
             </div>
           </div>
 
-          <!-- AI 摘要 -->
-          <div v-if="ticket.aiSummary" class="ai-summary glass-card-static">
+          <!--
+            AI 摘要。`aiContentVisible` 是"访客看不到任何 AI 生成内容"那条规则的落点：
+            后端会把 aiSummary 连同工单一起返回（它属于工单字段，不单独鉴权），
+            所以对访客的隐藏必须发生在这里。
+          -->
+          <div v-if="ticket.aiSummary && aiContentVisible" class="ai-summary glass-card-static">
             <div class="ai-summary-header">
               <el-icon><ChatDotRound /></el-icon>
               <span>AI 摘要</span>
@@ -116,20 +120,22 @@
               <el-icon><CircleCheck /></el-icon> 验收
             </el-button>
 
-            <el-button @click="router.push(`/tickets/${ticket.id}/edit`)" class="btn-glass">
+            <!-- 编辑 - 只有发布者本人、且工单未完结 -->
+            <el-button
+              v-if="canEdit"
+              @click="router.push(`/tickets/${ticket.id}/edit`)"
+              class="btn-glass"
+            >
               编辑
             </el-button>
 
-            <el-button
-              v-if="ticket.status === 'OPEN'"
-              type="warning"
-              :loading="analyzing"
-              @click="handleAiAnalysis"
-              class="btn-glass"
-            >
-              <el-icon v-if="!analyzing"><MagicStick /></el-icon>
-              AI开发分析
-            </el-button>
+            <!--
+              此处原有「AI开发分析」按钮（v-if="status === 'OPEN'"）已删除 ——
+              AI 卡片里有「点击生成技术建议」「点击生成任务拆解」两个按钮，是重复入口。
+              注意那两个按钮**不判状态**，所以 AI 分析现在在 ACCEPTED/PENDING_APPROVAL
+              上也变得可点了：这是想要的，别给它们补 status 判断，否则「任务拆解」
+              在开发中就永远生不出来。
+            -->
           </div>
         </el-card>
 
@@ -179,69 +185,178 @@
           </div>
         </el-card>
 
-        <!-- AI分析结果 -->
-        <el-card class="ai-analysis-card glass-card">
+        <!--
+          AI分析结果 - 默认折叠。
+          进详情页时这一大块会把整页顶下去，而它多数时候是空的（等生成），
+          所以默认收起，点标题栏展开。折叠状态不持久化 —— 需求就是"进来默认折叠"，
+          存一个 true 会让"默认"变成谎话。
+        -->
+        <el-card class="ai-analysis-card glass-card" :class="{ 'is-collapsed': !aiExpanded }">
           <template #header>
-            <div class="ai-analysis-header">
+            <div class="ai-analysis-header" @click="aiExpanded = !aiExpanded">
               <el-icon><MagicStick /></el-icon>
               <span>AI 开发助手</span>
+              <!--
+                额度徽标。只在**我是这张工单的接单人**时显示 —— 后端对非接单人
+                也返回 balance: 0，把它显示出来只会让人以为"我的额度是 0"。
+              -->
+              <span v-if="quota?.isHandler" class="quota-badge" :title="quotaTitle">
+                <el-icon size="13"><Coin /></el-icon>
+                剩余 {{ quota.balance }} 次
+              </span>
+              <el-icon class="ai-toggle-icon">
+                <ArrowRight v-if="!aiExpanded" />
+                <ArrowDown v-else />
+              </el-icon>
+              <!--
+                @click.stop 是必须的：容器整体可点，不 stop 的话点「下载PRD」
+                会顺手把卡片折叠起来，用户看到的是"点了下载，面板自己动了"。
+              -->
               <el-button
                 size="small"
                 type="primary"
-                @click="handleDownloadPrd"
+                @click.stop="handleDownloadPrd"
+                :loading="prdLoading"
+                :disabled="prdButtonDisabled"
                 class="download-prd-btn"
               >
-                <el-icon><Download /></el-icon> 下载PRD
+                <el-icon v-if="!prdLoading"><Download /></el-icon>
+                {{ ticket.aiPrd ? '下载PRD' : '生成并下载PRD' }}
               </el-button>
             </div>
           </template>
 
-          <el-tabs v-model="activeAiTab" type="border-card">
-            <el-tab-pane label="技术建议" name="tech">
-              <div v-if="ticket.aiTechSuggestion" class="ai-content markdown-content">{{ ticket.aiTechSuggestion }}</div>
-              <div v-else class="empty-content">
-                <el-button type="primary" :loading="analyzing" @click="handleAiAnalysis" class="btn-glass">
-                  <el-icon v-if="!analyzing"><MagicStick /></el-icon>
-                  点击生成技术建议
-                </el-button>
-              </div>
-            </el-tab-pane>
-            <el-tab-pane label="任务拆解" name="tasks">
-              <div v-if="ticket.aiTaskBreakdown" class="ai-content markdown-content">{{ ticket.aiTaskBreakdown }}</div>
-              <div v-else class="empty-content">
-                <el-button type="primary" :loading="analyzing" @click="handleAiAnalysis" class="btn-glass">
-                  <el-icon v-if="!analyzing"><MagicStick /></el-icon>
-                  点击生成任务拆解
-                </el-button>
-              </div>
-            </el-tab-pane>
+          <!--
+            用 v-if 而不是 v-show：el-tabs 的 TabNav 在 onMounted 里按 offsetWidth
+            算活动下划线位置，父级 display:none 时量到 0 —— 展开后下划线会缩成 0
+            宽贴在左边，要等切 tab 才自愈。v-if 在展开时于可见状态下重新挂载。
+          -->
+          <el-tabs v-if="aiExpanded" v-model="activeAiTab" type="border-card">
+            <!--
+              AI 对话排在第一个 tab。
+              它是这三个功能里唯一"解锁后可以反复用"的，也是最常用的入口 ——
+              排在第三个意味着每次都要先点开卡片再切一次 tab。
+            -->
             <el-tab-pane label="AI对话" name="chat">
               <div class="ai-chat-container">
-                <div class="ai-chat-messages" ref="aiChatMessagesRef">
-                  <div v-for="(msg, index) in aiChatMessages" :key="index" :class="['ai-chat-message', msg.role]">
-                    <div class="message-avatar">
-                      <el-icon v-if="msg.role === 'user'"><User /></el-icon>
-                      <el-icon v-else><MagicStick /></el-icon>
-                    </div>
-                    <div class="message-content">{{ msg.content }}</div>
-                  </div>
-                  <div v-if="aiChatMessages.length === 0" class="empty-chat">
-                    <p>我是AI开发助手，可以帮你解答项目开发相关的问题</p>
-                    <p>例如：这个项目应该怎么设计数据库？</p>
-                  </div>
-                </div>
-                <div class="ai-chat-input">
-                  <el-input
-                    v-model="aiChatInput"
-                    placeholder="输入你的问题... (Enter发送)"
-                    @keydown.enter="handleAiChat"
-                    :disabled="aiChatLoading"
-                  />
-                  <el-button type="primary" :loading="aiChatLoading" @click="handleAiChat" :disabled="!aiChatInput.trim()">
-                    发送
+                <!-- 状态横幅。只在用得着解释的时候出现：
+                     未解锁（说明第一次发送要花钱）或额度不足（给出会员预期）。 -->
+                <div v-if="chatBanner" class="chat-banner" :class="chatBanner.type">
+                  <el-icon size="14"><component :is="chatBanner.icon" /></el-icon>
+                  <span>{{ chatBanner.text }}</span>
+                  <el-button
+                    v-if="chatBanner.type === 'no-credit'"
+                    link
+                    type="primary"
+                    @click="showMembershipSoon"
+                  >
+                    了解会员
                   </el-button>
                 </div>
+
+                <AiLockedHint
+                  v-if="chatLocked"
+                  :title="chatLocked.title"
+                  :detail="chatLocked.detail"
+                  :action-text="chatLocked.actionText"
+                  @action="authStore.openAuthCard('login')"
+                />
+
+                <template v-else>
+                  <div class="ai-chat-messages" ref="aiChatMessagesRef">
+                    <div v-for="(msg, index) in aiChatMessages" :key="index" :class="['ai-chat-message', msg.role]">
+                      <div class="message-avatar">
+                        <el-icon v-if="msg.role === 'user'"><User /></el-icon>
+                        <el-icon v-else><MagicStick /></el-icon>
+                      </div>
+                      <div class="message-content">{{ msg.content }}</div>
+                    </div>
+                    <div v-if="aiChatMessages.length === 0" class="empty-chat">
+                      <p>我是AI开发助手，可以帮你解答项目开发相关的问题</p>
+                      <p>例如：这个项目应该怎么设计数据库？</p>
+                    </div>
+                  </div>
+                  <div class="ai-chat-input">
+                    <el-input
+                      v-model="aiChatInput"
+                      placeholder="输入你的问题... (Enter发送)"
+                      @keydown.enter="handleAiChat"
+                      :disabled="chatInputDisabled"
+                    />
+                    <el-button
+                      type="primary"
+                      :loading="aiChatLoading"
+                      @click="handleAiChat"
+                      :disabled="!aiChatInput.trim() || aiChatLoading || chatInputDisabled"
+                    >
+                      {{ chatUnlocked ? '发送' : '发送并解锁' }}
+                    </el-button>
+                  </div>
+                </template>
               </div>
+            </el-tab-pane>
+
+            <el-tab-pane label="技术建议" name="tech">
+              <!--
+                `&& aiContentVisible` 不能省：内容存在不等于**该给这个人看**。
+                后端把 AI 内容作为工单字段一起返回（对访客也一样），所以"访客看不到
+                AI 内容"这条规则只能落在渲染条件上。
+              -->
+              <div v-if="ticket.aiTechSuggestion && aiContentVisible" class="ai-content markdown-content">{{ ticket.aiTechSuggestion }}</div>
+              <template v-else>
+                <AiLockedHint
+                  v-if="analysisMask"
+                  :title="analysisMask.title"
+                  :detail="analysisMask.detail"
+                  :action-text="analysisMask.actionText"
+                  @action="authStore.openAuthCard('login')"
+                />
+                <div v-else class="empty-content">
+                  <p v-if="analysisState === 'USED'" class="used-note">
+                    这个功能已经用过了，但当时没有保存下内容。每张工单只能使用一次，如需重做请联系管理员。
+                  </p>
+                  <p v-else class="credit-hint">{{ creditHint }}</p>
+                  <el-button
+                    type="primary"
+                    :loading="analyzing"
+                    :disabled="analyzing || analysisState !== 'AVAILABLE' || !canAfford"
+                    @click="handleAiAnalysis"
+                    class="btn-glass"
+                  >
+                    <el-icon v-if="!analyzing"><MagicStick /></el-icon>
+                    点击生成技术建议
+                  </el-button>
+                </div>
+              </template>
+            </el-tab-pane>
+
+            <el-tab-pane label="任务拆解" name="tasks">
+              <div v-if="ticket.aiTaskBreakdown && aiContentVisible" class="ai-content markdown-content">{{ ticket.aiTaskBreakdown }}</div>
+              <template v-else>
+                <AiLockedHint
+                  v-if="analysisMask"
+                  :title="analysisMask.title"
+                  :detail="analysisMask.detail"
+                  :action-text="analysisMask.actionText"
+                  @action="authStore.openAuthCard('login')"
+                />
+                <div v-else class="empty-content">
+                  <p v-if="analysisState === 'USED'" class="used-note">
+                    这个功能已经用过了，但当时没有保存下内容。每张工单只能使用一次，如需重做请联系管理员。
+                  </p>
+                  <p v-else class="credit-hint">{{ creditHint }}</p>
+                  <el-button
+                    type="primary"
+                    :loading="analyzing"
+                    :disabled="analyzing || analysisState !== 'AVAILABLE' || !canAfford"
+                    @click="handleAiAnalysis"
+                    class="btn-glass"
+                  >
+                    <el-icon v-if="!analyzing"><MagicStick /></el-icon>
+                    点击生成任务拆解
+                  </el-button>
+                </div>
+              </template>
             </el-tab-pane>
           </el-tabs>
         </el-card>
@@ -281,20 +396,32 @@
             </div>
           </div>
 
-          <!-- 回复输入 -->
+          <!--
+            回复输入。访客看到的是"去登录"而不是一个填了半天、点发送才被拦下来的
+            输入框 —— 留言本来就要身份（后端从网关注入的 X-User-Id 取作者），
+            让访客先写再被拒是最浪费他时间的一种设计。
+          -->
           <div class="comment-input glass-card-static">
-            <el-input
-              v-model="newComment"
-              type="textarea"
-              :rows="3"
-              placeholder="输入回复内容..."
-              @keydown.enter.ctrl="handleAddComment"
-              class="glass-input"
-            />
-            <div class="comment-input-actions">
-              <el-checkbox v-model="isInternal" class="glass-checkbox">内部留言</el-checkbox>
-              <el-button type="primary" :loading="submitting" @click="handleAddComment" class="btn-glass btn-glass-primary">
-                发送
+            <template v-if="authStore.token">
+              <el-input
+                v-model="newComment"
+                type="textarea"
+                :rows="3"
+                placeholder="输入回复内容..."
+                @keydown.enter.ctrl="handleAddComment"
+                class="glass-input"
+              />
+              <div class="comment-input-actions">
+                <el-checkbox v-model="isInternal" class="glass-checkbox">内部留言</el-checkbox>
+                <el-button type="primary" :loading="submitting" @click="handleAddComment" class="btn-glass btn-glass-primary">
+                  发送
+                </el-button>
+              </div>
+            </template>
+            <div v-else class="comment-login-hint">
+              <span>登录后可以参与讨论</span>
+              <el-button type="primary" size="small" class="btn-glass btn-glass-primary" @click="authStore.openAuthCard('login')">
+                登录 / 注册
               </el-button>
             </div>
           </div>
@@ -302,68 +429,8 @@
       </template>
     </div>
 
-    <!--
-      接单二次确认。此前是一个 ElMessageBox.confirm —— 只有一个"确定/取消"，
-      发布者、预算、截止日期这些真该看一眼的信息全在弹窗外，点错了也没有退路。
-      接单是不可逆的（接了就下架、就归属到你名下），值得一个正经的确认框。
-    -->
-    <el-dialog
-      v-model="pickupVisible"
-      title="确认接单"
-      width="520px"
-      class="glass-dialog"
-      :close-on-click-modal="false"
-    >
-      <div v-if="ticket" class="dialog-body">
-        <div class="summary">
-          <div class="summary-row">
-            <span class="summary-label">工单</span>
-            <span class="summary-value">{{ ticket.title }}</span>
-          </div>
-          <div class="summary-row">
-            <span class="summary-label">发布者</span>
-            <span class="summary-value">{{ ticket.creatorName || '-' }}</span>
-          </div>
-          <div class="summary-row">
-            <span class="summary-label">预算</span>
-            <span class="summary-value">{{ ticket.budget ? `¥${ticket.budget}` : '面议' }}</span>
-          </div>
-          <div class="summary-row">
-            <span class="summary-label">截止日期</span>
-            <span class="summary-value">{{ ticket.deadline ? formatDate(ticket.deadline) : '待定' }}</span>
-          </div>
-          <div class="summary-row">
-            <span class="summary-label">技术栈</span>
-            <span class="summary-value">{{ ticket.techStack || '未指定' }}</span>
-          </div>
-        </div>
-
-        <el-alert type="warning" :closable="false" class="archive-note">
-          <template #title>接单后</template>
-          工单会立即从大厅下架并归属到你名下，其他开发者将无法再接。此后你需要
-          主动推进并在「待处理」里提交交付凭证，发布者验收通过才算完成。
-        </el-alert>
-
-        <el-checkbox v-model="pickupConfirmed" class="pickup-confirm">
-          我已确认需求范围与截止时间，愿意承接此项目
-        </el-checkbox>
-      </div>
-
-      <template #footer>
-        <el-button @click="pickupVisible = false" class="btn-glass">取消</el-button>
-        <el-button
-          type="success"
-          :disabled="!pickupConfirmed"
-          :loading="pickingUp"
-          @click="confirmPickup"
-          class="btn-glass btn-glass-success"
-        >
-          确认接单
-        </el-button>
-      </template>
-    </el-dialog>
-
-    <!-- 去完成 / 验收：与「待处理」「我的工单」共用同一对组件 -->
+    <!-- 接单 / 去完成 / 验收：三个弹窗与需求大厅的工单卡片共用同一套组件 -->
+    <PickupTicketDialog v-model="pickupVisible" :ticket="ticket || null" @done="reload" />
     <CompleteDeliveryDialog v-model="completeVisible" :ticket="ticket || null" @done="reload" />
     <ReviewDeliveryDialog v-model="reviewVisible" :ticket="ticket || null" @done="reload" />
   </div>
@@ -375,12 +442,21 @@ import { useRouter, useRoute } from 'vue-router'
 import { ticketApi } from '@/api'
 import { useTicketStore } from '@/stores'
 import { useAuthStore } from '@/stores/auth'
-import { ElMessage } from 'element-plus'
-import { ArrowLeft, ChatDotRound, User, Star, MagicStick, Check, Download, Finished, CircleCheck } from '@element-plus/icons-vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { ArrowLeft, ArrowRight, ArrowDown, ChatDotRound, User, Star, MagicStick, Check, Download, Finished, CircleCheck, Coin, InfoFilled, Warning } from '@element-plus/icons-vue'
 import CompleteDeliveryDialog from '@/components/CompleteDeliveryDialog.vue'
 import ReviewDeliveryDialog from '@/components/ReviewDeliveryDialog.vue'
-import type { TicketDTO, CommentDTO } from '@/types'
+import PickupTicketDialog from '@/components/PickupTicketDialog.vue'
+import AiLockedHint from '@/components/AiLockedHint.vue'
+import type { TicketDTO, CommentDTO, AiQuotaStatusDTO, AiFeatureState } from '@/types'
 import { getStatusLabel, getStatusType, getCategoryLabel, getCategoryType } from '@/utils/ticket-labels'
+import {
+  AI_FEATURE_LABELS,
+  MEMBERSHIP_CREDITS,
+  MEMBERSHIP_DAYS,
+  buildConsumeConfirmText,
+  formatExpireDate
+} from '@/utils/ai-quota'
 
 const router = useRouter()
 const route = useRoute()
@@ -394,7 +470,10 @@ const isInternal = ref(false)
 const loading = ref(false)
 const submitting = ref(false)
 const analyzing = ref(false)
-const activeAiTab = ref('tech')
+const prdLoading = ref(false)
+// AI 对话排第一，默认就落在它上面（原来默认是「技术建议」）
+const activeAiTab = ref('chat')
+const aiExpanded = ref(false)   // AI 开发助手卡片默认折叠
 
 // AI聊天相关
 const aiChatMessages = ref<Array<{role: string, content: string}>>([])
@@ -402,17 +481,250 @@ const aiChatInput = ref('')
 const aiChatLoading = ref(false)
 const aiChatMessagesRef = ref<HTMLElement>()
 
+// ---------------- AI 额度 ----------------
+
+/**
+ * 当前工单的 AI 额度状态。null = 还没拿到（未登录，或请求在飞）。
+ *
+ * 未登录时**不发**这个请求：/ai-usage 不在网关的匿名白名单里，发出去只会拿到
+ * 401，而 401 会被 axios 拦截器当成"登录已过期"弹登录卡片 —— 访客只是打开
+ * 一个工单看一眼，不该被这个他没做过的动作袭击。
+ */
+const quota = ref<AiQuotaStatusDTO | null>(null)
+
+/** 访客看不到任何 AI 生成内容（AI 摘要、技术建议、任务拆解、AI 回复） */
+const aiContentVisible = computed(() => !!authStore.token)
+
+const quotaTitle = computed(() => {
+  if (!quota.value) return ''
+  const expire = formatExpireDate(quota.value.nextExpireAt)
+  return expire
+    ? `最近一批额度将于 ${expire} 过期，过期未用完将作废`
+    : '当前额度为永久有效（注册赠送）'
+})
+
+async function loadAiUsage() {
+  if (!ticket.value || !authStore.token) {
+    quota.value = null
+    return
+  }
+  try {
+    quota.value = await ticketApi.getAiUsage(ticket.value.id)
+  } catch {
+    // 拉不到额度信息不该把页面搞崩：三个功能会退化成"用不了"，但详情照常可读。
+    // （这里不再弹提示 —— 用户对此无能为力，弹窗只会增加噪音。）
+    quota.value = null
+  }
+}
+
+/** 各功能状态。quota 未就绪时一律按 NOT_HANDLER 处理，宁可少露按钮也不多露。 */
+const analysisState = computed<AiFeatureState>(() => quota.value?.analysis ?? 'NOT_HANDLER')
+const chatState = computed<AiFeatureState>(() => quota.value?.chat ?? 'NOT_HANDLER')
+const chatUnlocked = computed(() => chatState.value === 'USED')
+
+const prdState = computed<AiFeatureState>(() => quota.value?.prd ?? 'NOT_HANDLER')
+
+/** 已经生成过 PRD → 重复下载命中后端存量，不扣费，任何状态下都不用拦 */
+const prdDownloadable = computed(() => !!ticket.value?.aiPrd)
+
+/**
+ * 余额还够不够付一次。
+ *
+ * 后端返回的功能状态（AVAILABLE/USED/…）**不含余额维度** —— 余额为 0 时三个功能
+ * 仍是 AVAILABLE，要等你按下去了才回 402。所以"余额不足就置灰"这条只能在前端加，
+ * 否则用户会看到一个可点的按钮，点完只得到一句错误。
+ */
+const canAfford = computed(() => (quota.value?.balance ?? 0) > 0)
+
+const prdButtonDisabled = computed(() => {
+  if (prdLoading.value) return true
+  // 存量下载永远可用
+  if (prdDownloadable.value) return false
+  // 非接单人（含访客）：不置灰，让他点了能看到原因 / 登录卡片。
+  // 置灰的按钮什么也不说，是最糟糕的一种"不可用"。
+  if (!quota.value?.isHandler) return false
+  if (prdState.value !== 'AVAILABLE') return true
+  return !canAfford.value
+})
+
+/** 技术建议 / 任务拆解两个 tab 共用的遮罩（要显示遮罩时返回 null） */
+const analysisMask = computed(() => {
+  if (!authStore.token) {
+    return { title: '登录后可用', detail: 'AI 辅助开发只对登录用户开放，注册即送 5 次额度。', actionText: '去登录' }
+  }
+  if (!quota.value) {
+    return { title: '正在加载额度信息…', detail: '', actionText: '' }
+  }
+  if (!quota.value.isHandler) {
+    return {
+      title: '接单后可用',
+      detail: ticket.value?.handlerId
+        ? '本工单已由其他开发者接单。AI 辅助开发只对这张工单的接单人开放。'
+        : '本工单还没有接单人。接单之后，这三个 AI 功能就会对你开放。',
+      actionText: ''
+    }
+  }
+  return null
+})
+
+/** 生成一次消耗多少、还剩多少 —— 按钮上方那行小字 */
+const creditHint = computed(() => {
+  if (!quota.value?.isHandler) return ''
+  if (analysisState.value === 'IN_PROGRESS') return '上一次调用还在进行中，请稍候…'
+  if (quota.value.balance <= 0) {
+    return `额度不足。开通会员可获得 ${MEMBERSHIP_CREDITS} 次（${MEMBERSHIP_DAYS} 天有效）`
+  }
+  const expire = formatExpireDate(quota.value.nextExpireAt)
+  return `每张工单每个功能只能用一次，本次消耗 1 次（剩余 ${quota.value.balance} 次${expire ? `，最近 ${expire} 过期` : ''}）`
+})
+
+/** AI 对话输入框能不能打字：访客与非接单人都不能，接单人（未解锁也行）可以 */
+const chatInputDisabled = computed(() => {
+  if (!authStore.token) return true
+  if (!quota.value) return true
+  if (!quota.value.isHandler || chatState.value === 'IN_PROGRESS') return true
+  // 已解锁的对话不再扣费，余额为 0 也照常能聊；只有"还没解锁"才需要余额。
+  return !chatUnlocked.value && !canAfford.value
+})
+
+/** 聊天 tab 用不了时的遮罩 */
+const chatLocked = computed(() => {
+  if (!authStore.token) {
+    return { title: '登录后可用', detail: '登录并接单后，可以用 1 次额度解锁本工单的 AI 对话。', actionText: '去登录' }
+  }
+  if (!quota.value) {
+    return { title: '正在加载额度信息…', detail: '', actionText: '' }
+  }
+  if (!quota.value.isHandler) {
+    return {
+      title: '接单后可用',
+      detail: ticket.value?.handlerId
+        ? '本工单已由其他开发者接单。AI 对话只对这张工单的接单人开放。'
+        : '本工单还没有接单人。接单之后即可解锁 AI 对话。',
+      actionText: ''
+    }
+  }
+  if (chatState.value === 'IN_PROGRESS') {
+    return { title: '正在处理中', detail: '上一次调用还在进行，完成后本工单的 AI 对话就会解锁。', actionText: '' }
+  }
+  return null
+})
+
+/**
+ * 聊天框顶部的状态横幅。只在有必要解释的时候出现，避免变成一个常驻的说明条。
+ *   未解锁 → 说清"第一条消息要花 1 次，之后免费"
+ *   解锁了但余额为 0 → 给会员预期（已解锁的对话不受余额影响，所以只是提示）
+ */
+const chatBanner = computed(() => {
+  if (!authStore.token || !quota.value?.isHandler) return null
+  if (chatState.value === 'IN_PROGRESS') return null
+  if (!chatUnlocked.value) {
+    if (quota.value.balance <= 0) {
+      return {
+        type: 'no-credit',
+        icon: Warning,
+        text: `额度不足，无法解锁 AI 对话。开通会员可获得 ${MEMBERSHIP_CREDITS} 次（${MEMBERSHIP_DAYS} 天有效）。`
+      }
+    }
+    return {
+      type: 'info',
+      icon: InfoFilled,
+      text: `本工单的 AI 对话尚未解锁：发送第一条消息将消耗 1 次额度，解锁后本工单内可无限对话。`
+    }
+  }
+  return { type: 'unlocked', icon: Check, text: 'AI 对话已解锁，本工单内可无限提问，不再消耗额度。' }
+})
+
+// ---------------- AI 动作的公共前置 ----------------
+
+/** axios 的原始错误（网络/超时/5xx）。业务错误被拦截器转成了普通 Error，不带这个标记 */
+function isAxiosError(e: any): boolean {
+  return !!e?.isAxiosError
+}
+
+function showMembershipSoon() {
+  ElMessage.info('会员功能即将上线，敬请期待')
+}
+
+/**
+ * 三个 AI 动作的公共前置。返回 true 表示可以继续走确认框。
+ *
+ * 这些判断后端**全都再做一遍**，这里只是为了让用户不必先失败一次才知道原因 ——
+ * 前端永远不是权限边界。
+ */
+function aiPrecheck(state: AiFeatureState, label: string): boolean {
+  if (!authStore.token) {
+    authStore.openAuthCard('login')
+    return false
+  }
+  if (!quota.value) {
+    ElMessage.warning('额度信息还在加载，请稍候再试')
+    return false
+  }
+  if (!quota.value.isHandler) {
+    ElMessage.warning(ticket.value?.handlerId ? '本工单已由其他开发者接单，只有接单人可以使用 AI 功能' : '接单后才可以使用 AI 功能')
+    return false
+  }
+  if (state === 'USED') {
+    ElMessage.warning(`该工单的「${label}」已经用过了，每张工单每个功能只能用一次`)
+    return false
+  }
+  if (state === 'IN_PROGRESS') {
+    ElMessage.warning('上一次调用还在进行中，请稍候再试')
+    return false
+  }
+  if (quota.value.balance <= 0) {
+    ElMessage.error('AI 辅助开发额度不足')
+    showMembershipSoon()
+    return false
+  }
+  return true
+}
+
+/** 消耗前的确认框。返回 false = 用户点了"再想想" */
+async function confirmConsume(label: string, isChat: boolean): Promise<boolean> {
+  const balance = quota.value?.balance ?? 0
+  const text = isChat
+    ? `本次将消耗 1 次 AI 辅助开发额度（当前剩余 ${balance} 次）。解锁后本工单内可无限对话，不再扣费。确认解锁？`
+    : buildConsumeConfirmText(label, balance, quota.value?.nextExpireAt)
+  try {
+    await ElMessageBox.confirm(text, '消耗额度确认', {
+      confirmButtonText: '确认使用',
+      cancelButtonText: '再想想',
+      type: 'warning'
+    })
+    return true
+  } catch {
+    return false
+  }
+}
+
+
 // ---------------- 角色与状态判定 ----------------
 
 const myId = computed(() => authStore.userInfo?.id)
 
-/** 接单入口：没人接 + 状态为 OPEN + 我不是发布者。三者缺一不可。 */
+/**
+ * 接单入口：没人接 + 状态为 OPEN + 我不是发布者 + 我**不是发布者身份**。
+ * 四者缺一不可。
+ *
+ * 最后一条是身份层面的：发布者账号在界面上不提供接单这件事（他发需求，不接活）。
+ * 前三条是"这一单里我站哪边"，第四条是"我这个账号是干嘛的"—— 两者是不同维度，
+ * 所以 `creatorId !== 我` 挡不住"发布者去接别人发的单"，得单独判 role。
+ *
+ * 这条只是前端不给入口。后端 POST /pickup 现在也要求登录（缺 X-User-Id 报 401），
+ * 但仍然**不校验身份** —— 它只挡"不能接自己的工单"。这是有意的：Role 的定位是
+ * "决定默认给你看什么"，不是"把账号锁死在一边"。编辑/删除/关闭/重开/交付/验收
+ * 六件事已经在 TicketService 里按"这一单里我站哪边"做了硬校验
+ * （requireCreator / requireHandler），接单这条角色策略仍留待以后。
+ */
 const canPickup = computed(
   () =>
     !!ticket.value &&
     !ticket.value.handlerId &&
     ticket.value.status === 'OPEN' &&
-    ticket.value.creatorId !== myId.value
+    ticket.value.creatorId !== myId.value &&
+    authStore.userInfo?.role !== 'PUBLISHER'
 )
 
 const isCreator = computed(() => !!ticket.value && ticket.value.creatorId === myId.value)
@@ -423,6 +735,16 @@ const isArchived = computed(
   () => !!ticket.value && ['COMPLETED', 'CLOSED'].includes(ticket.value.status)
 )
 
+/**
+ * 编辑入口：我是发布者 + 工单未完结。
+ *
+ * 与后端 updateTicket 的两道门一一对应（requireCreator 的 403 + 未完结的 400），
+ * 但这里只是不把入口露出来 —— 真正的边界在服务端。
+ * 复用 isArchived 而不是再写一遍状态数组：这个文件里"已完结"只有一份定义，
+ * 两份必然漂移（后端的孪生是 TicketService.ARCHIVED_STATUSES）。
+ */
+const canEdit = computed(() => isCreator.value && !isArchived.value)
+
 async function loadTicket() {
   loading.value = true
   try {
@@ -432,32 +754,25 @@ async function loadTicket() {
   } finally {
     loading.value = false
   }
+  // 额度状态依赖工单（判断我是不是接单人），所以放在工单之后拉。
+  // 两个请求串行是有意的：并行的话 AI 卡片会先按"未知身份"渲染一次再跳变。
+  await loadAiUsage()
 }
 
 // ---------------- 接单 ----------------
 
+// 接单本身（确认框 + 调接口 + 刷新）已抽到 components/PickupTicketDialog.vue，
+// 因为需求大厅的工单卡片上也要有同一个入口 —— 两份确认框必然漂移。
 const pickupVisible = ref(false)
-const pickupConfirmed = ref(false)
-const pickingUp = ref(false)
 
 function openPickupDialog() {
-  pickupConfirmed.value = false
-  pickupVisible.value = true
-}
-
-async function confirmPickup() {
-  if (!ticket.value || !pickupConfirmed.value) return
-  pickingUp.value = true
-  try {
-    ticket.value = await ticketApi.pickupTicket(ticket.value.id)
-    pickupVisible.value = false
-    ticketStore.triggerRefresh()
-    ElMessage.success('接单成功！请进入聊天与发布者沟通')
-  } catch {
-    // 错误提示由 axios 拦截器统一弹出
-  } finally {
-    pickingUp.value = false
+  // 访客点「接单」→ 开登录卡片（与大厅的 openPickup 同一处理）。
+  // canPickup 对访客为真是有意的：让他看见"这里可以接单"，比藏起来更能促成注册。
+  if (!authStore.token) {
+    authStore.openAuthCard('login')
+    return
   }
+  pickupVisible.value = true
 }
 
 // ---------------- 去完成 / 验收 ----------------
@@ -478,21 +793,50 @@ function reload() {
   ticketStore.triggerRefresh()
 }
 
+/**
+ * AI 分析（技术建议 + 任务拆解）。
+ *
+ * 一次消耗同时产出两个 tab 的内容 —— 后端那边也是一个功能
+ * （AiFeature.ANALYSIS），所以两个 tab 的按钮共用一个 analyzing，
+ * 一个在飞时另一个也禁用，避免用户以为"再点一次能生成另一半"。
+ */
 async function handleAiAnalysis() {
-  if (!ticket.value) return
+  if (!ticket.value || analyzing.value) return
+  if (!aiPrecheck(analysisState.value, AI_FEATURE_LABELS.ANALYSIS)) return
+  if (!(await confirmConsume(AI_FEATURE_LABELS.ANALYSIS, false))) return
+
   analyzing.value = true
   try {
     ticket.value = await ticketApi.analyzeTicket(ticket.value.id)
-    ElMessage.success('AI分析完成')
-  } catch {
-    ElMessage.error('AI分析失败，请稍后重试')
+    ElMessage.success('AI 分析完成')
+    await loadAiUsage()
+  } catch (e) {
+    // 业务错误（已用过 / 额度不足 / 非接单人）的提示由 axios 拦截器弹过，
+    // 这里只兜网络与超时 —— 否则用户会连着看到两条意思一样的红字。
+    if (isAxiosError(e)) ElMessage.error('AI 分析失败，请稍后重试')
   } finally {
     analyzing.value = false
   }
 }
 
+/**
+ * 生成并下载 PRD。
+ *
+ * 三种情况下**不需要消耗额度**，因此也跳过确认框：
+ *   1. 工单上已有存量 PRD（后端命中存量直接返回，不扣费）；
+ *   2. 用户点的是"再下一份文件"这个动作本身。
+ * 只有"第一次生成"才走前置校验 + 确认。
+ */
 async function handleDownloadPrd() {
-  if (!ticket.value) return
+  if (!ticket.value || prdLoading.value) return
+
+  const needGenerate = !prdDownloadable.value
+  if (needGenerate) {
+    if (!aiPrecheck(prdState.value, AI_FEATURE_LABELS.PRD)) return
+    if (!(await confirmConsume(AI_FEATURE_LABELS.PRD, false))) return
+  }
+
+  prdLoading.value = true
   try {
     // 拦截器对 blob 请求直接返回 Blob 本身，这里不能再取 response.data
     // （Blob 没有 .data，取到的是 undefined，下载出来的文件内容就是字符串
@@ -508,14 +852,31 @@ async function handleDownloadPrd() {
     link.click()
     document.body.removeChild(link)
     window.URL.revokeObjectURL(url)
-    ElMessage.success('PRD下载成功')
-  } catch {
-    ElMessage.error('下载失败，请稍后重试')
+    ElMessage.success('PRD 下载成功')
+    // 生成路径要刷新额度与工单（aiPrd 已落库，按钮文案随之变成"下载PRD"）
+    if (needGenerate) {
+      await loadTicket()
+      ticketStore.triggerRefresh()
+    }
+  } catch (e) {
+    if (isAxiosError(e)) ElMessage.error('下载失败，请稍后重试')
+  } finally {
+    prdLoading.value = false
   }
 }
 
+/**
+ * AI 对话。**首条消息消耗 1 次额度解锁，之后本工单内无限对话**（后端语义）。
+ *
+ * 所以确认框只在"还没解锁"时弹：已解锁还每次弹一次，用户会以为每条消息都在扣费。
+ */
 async function handleAiChat() {
   if (!ticket.value || !aiChatInput.value.trim() || aiChatLoading.value) return
+
+  if (!chatUnlocked.value) {
+    if (!aiPrecheck(chatState.value, AI_FEATURE_LABELS.CHAT)) return
+    if (!(await confirmConsume(AI_FEATURE_LABELS.CHAT, true))) return
+  }
 
   const userMessage = aiChatInput.value.trim()
   aiChatMessages.value.push({ role: 'user', content: userMessage })
@@ -529,8 +890,18 @@ async function handleAiChat() {
     if (aiChatMessagesRef.value) {
       aiChatMessagesRef.value.scrollTop = aiChatMessagesRef.value.scrollHeight
     }
-  } catch {
-    ElMessage.error('AI回复失败，请稍后重试')
+    // 解锁这一步改变了 quota.chat（AVAILABLE → USED），横幅、按钮文案、
+    // 剩余次数徽标都得跟着更新
+    if (!chatUnlocked.value) await loadAiUsage()
+  } catch (e) {
+    if (isAxiosError(e)) {
+      ElMessage.error('AI 回复失败，请稍后重试')
+    } else {
+      // 业务错误（未解锁 / 额度不足 / 不是接单人）：撤掉那条永远不会有回答的气泡，
+      // 并把问题**还回输入框** —— 用户刚打的一段字不能就这么没了。
+      aiChatMessages.value.pop()
+      aiChatInput.value = userMessage
+    }
   } finally {
     aiChatLoading.value = false
   }
@@ -586,37 +957,9 @@ onMounted(() => {
   text-decoration: underline;
 }
 
-.summary {
-  margin-bottom: 16px;
-  padding: 12px 14px;
-  border-radius: 8px;
-  background: var(--glass-bg, rgba(255, 255, 255, 0.05));
-}
-
-.summary-row {
-  display: flex;
-  gap: 12px;
-  line-height: 1.9;
-  font-size: 13px;
-}
-
-.summary-label {
-  flex: 0 0 68px;
-  color: var(--text-secondary);
-}
-
-.summary-value {
-  color: var(--text-primary);
-  word-break: break-all;
-}
-
-.archive-note {
-  margin-top: 4px;
-}
-
-.pickup-confirm {
-  margin-top: 14px;
-}
+/* 此处原有 .summary / .summary-row / .summary-label / .summary-value /
+   .archive-note / .pickup-confirm 六条 —— 只服务于已抽走的接单弹窗。
+   那套样式在两个交付弹窗里各有一份、这里曾是第三份，跟着弹窗一起删掉。 */
 
 .ticket-header-card {
   margin-bottom: 20px;
@@ -755,6 +1098,36 @@ onMounted(() => {
   gap: 8px;
   font-weight: 600;
   color: var(--accent-warning);
+  /* 整个标题栏是折叠开关 */
+  cursor: pointer;
+  user-select: none;
+}
+
+.ai-toggle-icon {
+  font-size: 14px;
+  color: var(--text-tertiary);
+}
+
+/* 剩余额度徽标。只在我是这张工单的接单人时出现（后端对非接单人返回 0）。 */
+.quota-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 6px;
+  padding: 3px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent-warning);
+  background: rgba(255, 159, 10, 0.14);
+  border: 1px solid rgba(255, 159, 10, 0.32);
+  border-radius: 999px;
+  cursor: help;
+}
+
+/* 折叠时把 body 一起收掉：只用 v-if 拿掉 el-tabs 的话，空 body 的默认
+   padding 会在标题下面留一条空白。 */
+.ai-analysis-card.is-collapsed :deep(.el-card__body) {
+  display: none;
 }
 
 .download-prd-btn {
@@ -766,6 +1139,56 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   height: 400px;
+}
+
+/*
+ * 聊天框顶部的状态横幅（未解锁 / 已解锁 / 额度不足）。
+ * 只在需要解释的时候渲染，所以不给它留常驻高度。
+ */
+.chat-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding: 9px 12px;
+  font-size: 13px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--glass-border);
+  background: var(--glass-bg);
+  color: var(--text-secondary);
+}
+
+.chat-banner.info {
+  color: var(--accent-info);
+  border-color: rgba(100, 210, 255, 0.32);
+  background: rgba(100, 210, 255, 0.1);
+}
+
+.chat-banner.no-credit {
+  color: var(--accent-warning);
+  border-color: rgba(255, 159, 10, 0.32);
+  background: rgba(255, 159, 10, 0.1);
+}
+
+.chat-banner.unlocked {
+  color: var(--accent-success);
+  border-color: rgba(48, 209, 88, 0.3);
+  background: rgba(48, 209, 88, 0.1);
+}
+
+/* 按钮上方那行"要花几次"的小字 */
+.credit-hint {
+  margin-bottom: 14px;
+  font-size: 13px;
+  color: var(--text-tertiary);
+}
+
+.used-note {
+  max-width: 420px;
+  margin: 0 auto 14px;
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--text-tertiary);
 }
 
 .ai-chat-messages {
@@ -948,6 +1371,17 @@ onMounted(() => {
   justify-content: space-between;
   align-items: center;
   margin-top: 12px;
+}
+
+/* 访客看到的"登录后参与讨论"，代替输入框 */
+.comment-login-hint {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 4px;
+  font-size: 14px;
+  color: var(--text-tertiary);
 }
 
 .btn-glass-success {

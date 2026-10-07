@@ -9,7 +9,8 @@ export interface LoginResponse {
   refreshToken: string
   userId: number
   username: string
-  role: string
+  /** 是后端 Role 枚举的 name()，不是随便一个字符串 —— 所以收紧成 Role */
+  role: Role
   nickname: string
 }
 
@@ -18,7 +19,23 @@ export interface RegisterRequest {
   password: string
   email: string
   nickname?: string
+  /**
+   * 注册身份。必填（注册页会拦），但类型上留可选是因为后端仍接受 null 并落到
+   * USER —— 那是给旧调用方的向后兼容，不是推荐用法。
+   *
+   * 取值只有 PUBLISHER / HANDLER 两个：后端有白名单，传 ADMIN 会被 400 拒掉。
+   */
+  role?: RegisterRole
 }
+
+/**
+ * 可自助注册的身份。
+ *
+ * 和 Role 分开定义是故意的：Role 里还有 USER（存量兼容）和 ADMIN（只能由管理员
+ * 在用户管理里授予），那两个都**不能**出现在注册请求里。用两个类型把这件事表达
+ * 出来，比在注册页写一句注释然后靠自觉可靠。
+ */
+export type RegisterRole = 'PUBLISHER' | 'HANDLER'
 
 export interface UserDTO {
   id: number
@@ -31,7 +48,17 @@ export interface UserDTO {
   createdAt?: string
 }
 
-export type Role = 'USER' | 'ADMIN'
+/**
+ * 账号身份，与后端 common/enums/Role.java 一一对应。
+ *
+ * 此前这里只有 'USER' | 'ADMIN' —— HANDLER 加进后端枚举之后前端就没跟上，只是
+ * 因为 stores/auth.ts 里有一句 `role: data.role as any` 把类型检查绕过去了，
+ * 所以一直没报错。补全之后那句 as any 也一并删掉了。
+ *
+ * 身份决定**大厅顶上给你看哪几张卡**（见 views/ticket/TicketList.vue），
+ * 不决定某个工单里你能做什么 —— 那按 creatorId / handlerId 判。
+ */
+export type Role = 'USER' | 'HANDLER' | 'PUBLISHER' | 'ADMIN'
 
 export interface UserSkillDTO {
   id: number
@@ -137,6 +164,29 @@ export interface CommentDTO {
   createdAt: string
 }
 
+// ---------------------------------------------------------------- AI 额度
+/**
+ * 单个 AI 功能在这张工单上的状态。与后端
+ * com.aiticket.ticket.enums.AiFeatureState 一一对应。
+ *
+ * - AVAILABLE    —— 我是接单人，还没用过，可以按（前提是额度够）
+ * - IN_PROGRESS  —— 有一次调用正在飞（占位行还是 RESERVED），按钮要禁用
+ * - USED         —— 已经用过了，本工单不再可用
+ * - NOT_HANDLER  —— 我不是接单人（含未登录），整个区域遮罩
+ */
+export type AiFeatureState = 'AVAILABLE' | 'IN_PROGRESS' | 'USED' | 'NOT_HANDLER'
+
+export interface AiQuotaStatusDTO {
+  /** 账户剩余可用次数。非接单人时后端固定返回 0，不暴露别人的余额 */
+  balance: number
+  /** 最近一批的过期时间；没有会过期的批次时为 null */
+  nextExpireAt?: string | null
+  isHandler: boolean
+  analysis: AiFeatureState
+  prd: AiFeatureState
+  chat: AiFeatureState
+}
+
 export interface Reference {
   source: string
   similarity: number
@@ -160,6 +210,14 @@ export interface TicketQueryRequest {
   creatorId?: number
   excludeCreatorId?: number
   handlerId?: number
+  /**
+   * 「我参与的」：creatorId = 我 **或** handlerId = 我。
+   *
+   * creatorId / handlerId 是各自独立的 AND 条件，表达不了"我是发布者或我是接单人"。
+   * 「已完成」要两边都看得见自己那单，就用它 —— 发布者不该因为没接过单就查不到
+   * 自己发布的已完成工单。「待验收」不要用它，见后端 TicketQueryRequest 的注释。
+   */
+  participantId?: number
   status?: TicketStatus
   /**
    * 多状态筛选，与 status 互斥（后端 buildSpecification 里 statuses 优先）。
@@ -201,15 +259,41 @@ export interface ApproveTicketRequest {
 }
 
 /**
- * 字段名必须与后端 TicketStatsDTO 一致（open/accepted/pendingApproval/completed）。
+ * 字段名必须与后端 TicketStatsDTO 一致（共 10 个）。
  * 这里以前写的是 processing/resolved/closed，全是后端不存在的字段 —— 类型没报错，
  * 但取到的值恒为 undefined，四张统计卡里三张永远显示空白。
+ *
+ * 口径（都按"这一单里我站哪边"分，不要混）：
+ *   open                   —— 全站待接单。大厅第一张卡，唯一一个不分"我"的数字。
+ *   accepted               —— 我接的单在开发中        ┐
+ *   pendingApproval        —— 我接的单待验收           ├ 管理端 Stats.vue 在用，
+ *   completed              —— 我接的单已完成           ┘ 大厅的卡不再用这三个
+ *   pendingApprovalAsCreator —— **待我验收**（我发布的单）：PENDING_APPROVAL 下该动作
+ *                               的人是发布者，按 handlerId 数恒为 0，点开就是空表。
+ *   completedAsParticipant —— 我参与的已完成（发布者或接单人都算）。「已完成」卡用这个。
+ *   createdTotal           —— 我发布的，不限状态。「我发布的」卡。
+ *   handledTotal           —— 我接的单，不限状态。「我接的单」卡。
+ *   activeAsCreator        —— 我发布的还没结的。「进行中」卡（发布者视角）。
+ *   activeAsHandler        —— 我接的还没结的。「进行中」卡（接单者视角）。
+ *
+ * 每张卡上的数字都必须与点开后的列表 total 相等 —— 两边口径不同就会出现
+ * "卡片写 9、点开空表"，那正是用户报过的 bug。对不上的时候改这里，别改卡。
  */
 export interface TicketStatsDTO {
   open: number
   accepted: number
   pendingApproval: number
   completed: number
+  pendingApprovalAsCreator: number
+  completedAsParticipant: number
+  /** 我发布的，不限状态。大厅「我发布的」卡。 */
+  createdTotal: number
+  /** 我接的单，不限状态。大厅「我接的单」卡（接单者视角）。 */
+  handledTotal: number
+  /** 我发布的、还没结的（ACCEPTED/REJECTED/PENDING_APPROVAL）。大厅「进行中」卡。 */
+  activeAsCreator: number
+  /** 我接的、还没结的（同上状态集）。接单者的「进行中」卡。 */
+  activeAsHandler: number
 }
 
 export interface ClassifyResponse {

@@ -14,6 +14,7 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.List;
 
 @Repository
@@ -43,6 +44,30 @@ public interface TicketRepository extends JpaRepository<Ticket, Long>, JpaSpecif
 
     // Count by handler
     long countByHandlerIdAndStatusAndDeletedAtIsNull(Long handlerId, TicketStatus status);
+
+    // Count by creator —— 「待我验收」。PENDING_APPROVAL 下该动作的人是 creator，
+    // 不是 handler，所以发布者侧的数字只能这么数。
+    long countByCreatorIdAndStatusAndDeletedAtIsNull(Long creatorId, TicketStatus status);
+
+    // Count by participant —— 发布者或接单人都算，「已完成」双方都能看见自己那单。
+    @Query("SELECT COUNT(t) FROM Ticket t WHERE t.deletedAt IS NULL AND t.status = :status "
+            + "AND (t.creatorId = :participantId OR t.handlerId = :participantId)")
+    long countByParticipantIdAndStatus(@Param("participantId") Long participantId,
+                                       @Param("status") TicketStatus status);
+
+    // ---------------- 大厅分身份卡片的四个数 ----------------
+
+    // 我发布的，不限状态 —— 「我发布的」卡。（和 /my 那个接口同口径，此处只要数字）
+    long countByCreatorIdAndDeletedAtIsNull(Long creatorId);
+
+    // 我接的单，不限状态 —— 「我接的单」卡。
+    long countByHandlerIdAndDeletedAtIsNull(Long handlerId);
+
+    // 「进行中」卡：归属 × 一组状态。发布者按 creatorId 数，接单者按 handlerId 数。
+    // 状态集由 TicketService.ACTIVE_STATUSES 定义，别在这里再写一份字面量。
+    long countByCreatorIdAndStatusInAndDeletedAtIsNull(Long creatorId, Collection<TicketStatus> statuses);
+
+    long countByHandlerIdAndStatusInAndDeletedAtIsNull(Long handlerId, Collection<TicketStatus> statuses);
 
     // 此处原有 5 个 @Modifying 批量 UPDATE（assignHandler / startProcessing /
     // resolve / close / reopen）。它们**从未被调用过** —— TicketService 里所有

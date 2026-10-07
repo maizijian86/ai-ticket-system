@@ -73,6 +73,7 @@ import { ref, reactive, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { ticketApi } from '@/api'
 import { useTicketStore } from '@/stores'
+import { useAuthStore } from '@/stores/auth'
 import { ElMessage } from 'element-plus'
 import { ArrowLeft } from '@element-plus/icons-vue'
 import type { FormInstance } from 'element-plus'
@@ -81,6 +82,7 @@ import type { TicketCategory, Urgency, TicketDTO } from '@/types'
 const router = useRouter()
 const route = useRoute()
 const ticketStore = useTicketStore()
+const authStore = useAuthStore()
 
 const ticketId = Number(route.params.id)
 
@@ -105,6 +107,22 @@ async function loadTicket() {
   loading.value = true
   try {
     const ticket: TicketDTO = await ticketApi.getTicket(ticketId)
+
+    // 纵深防御：正常入口（详情页的「编辑」按钮）只在发布者+未完结时出现，这里是
+    // 拦住直接敲 URL 的情况 —— 别让用户对着一个必然失败的按钮填半天表单。
+    // 真正的边界在后端 updateTicket（403 + 400），这里用**同一句文案**，
+    // 走哪条路看到的都是同一句话。
+    if (ticket.creatorId !== authStore.userInfo?.id) {
+      ElMessage.error('只有发布者才能编辑该工单')
+      router.replace(`/tickets/${ticketId}`)
+      return
+    }
+    if (['COMPLETED', 'CLOSED'].includes(ticket.status)) {
+      ElMessage.error('已完结的工单不能编辑')
+      router.replace(`/tickets/${ticketId}`)
+      return
+    }
+
     form.content = ticket.content
     form.title = ticket.title
     form.category = ticket.category || ''
@@ -131,6 +149,10 @@ async function handleSubmit() {
         ticketStore.triggerRefresh()
         ElMessage.success('工单已更新')
         router.push(`/tickets/${ticketId}`)
+      } catch {
+        // 错误提示由 axios 拦截器统一弹出（与三个交付弹窗同一套约定）。
+        // 传了 callback 的 validate 不会把这里的 rejection 往上抛，不接就是一个
+        // 未捕获的 promise rejection，控制台会多一行 "Uncaught (in promise)"。
       } finally {
         submitting.value = false
       }

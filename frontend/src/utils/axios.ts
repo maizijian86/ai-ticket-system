@@ -1,6 +1,5 @@
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
-import router from '@/router'
 import { useAuthStore } from '@/stores/auth'
 
 const request = axios.create({
@@ -26,12 +25,18 @@ function flushQueue(token: string | null) {
   pendingQueue = []
 }
 
-/** 清空本地登录态并回登录页。 */
+/**
+ * 清空本地登录态，并把登录卡片摆到用户眼前。
+ *
+ * 不再 `router.push('/login')`：整页登录路由已删除，而且把用户从他正在看的页面
+ * 拽走再让他自己走回来是多此一举 —— 弹卡片就够了，背后的内容还在原处。
+ * 这里是模块级函数，拿不到组件里的 store 实例，所以用 useAuthStore() 现取
+ * （Pinia 在 app 挂载后就已激活，拦截器只会在那之后被调用）。
+ */
 function forceLogin(message = '登录已过期，请重新登录') {
-  useAuthStore().logout()
-  if (router.currentRoute.value.path !== '/login') {
-    router.push('/login')
-  }
+  const authStore = useAuthStore()
+  authStore.logout()
+  authStore.openAuthCard('login')
   ElMessage.error(message)
 }
 

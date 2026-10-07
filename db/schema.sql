@@ -398,3 +398,67 @@ CREATE TABLE project_discussion (
     INDEX idx_discussion_target (target_type, target_id),
     FOREIGN KEY (project_id) REFERENCES project(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ==================== AI 辅助开发额度（ticket-service） ====================
+-- 与实体 com.aiticket.ticket.entity.AiCreditBatch / AiUsage / UserMembership 一一对应。
+-- ticket-service 是 ddl-auto: update，首次启动会自动建这三张表；这里留存一份 DDL 作为
+-- 记录，也给已有的库做手工迁移用（见 db/migration.sql）。
+
+-- 额度批次：一行 = 一次发放。注册赠送 / 会员发放 / 管理员调整都往这里插一行。
+-- 余额 = SUM(remaining_amount) where remaining_amount > 0 AND (expires_at IS NULL OR expires_at > NOW())
+CREATE TABLE ai_credit_batch (
+    id               BIGINT       AUTO_INCREMENT PRIMARY KEY,
+    user_id          BIGINT       NOT NULL COMMENT '额度所属账号',
+    source           VARCHAR(20)  NOT NULL COMMENT 'REGISTER / MEMBERSHIP / ADMIN',
+    biz_key          VARCHAR(100) NOT NULL COMMENT '发放幂等键: SIGNUP:{userId} / MEMBERSHIP:{orderId} / ADMIN:{uuid}',
+    total_amount     INT          NOT NULL COMMENT '本批发放总额',
+    remaining_amount INT          NOT NULL COMMENT '本批剩余',
+    expires_at       DATETIME     DEFAULT NULL COMMENT '过期时间; NULL = 永久有效',
+    granted_at       DATETIME     NOT NULL,
+    remark           VARCHAR(255) DEFAULT NULL,
+    created_at       DATETIME     DEFAULT CURRENT_TIMESTAMP,
+    updated_at       DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at       DATETIME     DEFAULT NULL,
+    UNIQUE KEY uk_batch_biz_key (biz_key),
+    KEY idx_batch_user_expiry (user_id, expires_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='AI额度批次';
+
+-- 使用流水：一行 = 一次功能调用尝试。同时是消耗流水和"每工单每功能一次"的数据库级约束。
+-- uk_usage_slot 是这条规则的**权威**：SUCCESS 行永久占位，同票同功能再插必然冲突，
+-- 并发/多实例/Redis 挂了都成立。active_slot=NULL 在 MySQL 唯一键里不参与去重，
+-- 所以失败退款后可以重试（失败行保留下来做审计）。
+CREATE TABLE ai_usage (
+    id              BIGINT       AUTO_INCREMENT PRIMARY KEY,
+    ticket_id       BIGINT       NOT NULL,
+    user_id         BIGINT       NOT NULL COMMENT '消耗者(接单人)',
+    feature         VARCHAR(20)  NOT NULL COMMENT 'ANALYSIS / PRD / CHAT',
+    status          VARCHAR(20)  NOT NULL COMMENT 'RESERVED / SUCCESS / REFUNDED',
+    active_slot     TINYINT      DEFAULT 1 COMMENT '1=占用中; NULL=已释放(失败可重试)',
+    batch_id        BIGINT       DEFAULT NULL COMMENT '实际扣减的批次,退款回滚到同一批',
+    amount          INT          NOT NULL DEFAULT 1,
+    failure_reason  VARCHAR(500) DEFAULT NULL,
+    created_at      DATETIME     DEFAULT CURRENT_TIMESTAMP,
+    updated_at      DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at      DATETIME     DEFAULT NULL,
+    UNIQUE KEY uk_usage_slot (ticket_id, feature, active_slot),
+    KEY idx_usage_user (user_id),
+    KEY idx_usage_batch (batch_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='AI额度使用流水';
+
+-- 会员订阅：本次**只建表、不接任何接口**，方案见仓库根目录 会员额度plan.txt。
+-- 会员身份记在这张表，次数记在 ai_credit_batch（source=MEMBERSHIP, expires_at=发放日+30天），
+-- "到期没用完的次数作废"由批次的 expires_at 天然表达，不需要额外核销逻辑。
+CREATE TABLE user_membership (
+    id              BIGINT      AUTO_INCREMENT PRIMARY KEY,
+    user_id         BIGINT      NOT NULL,
+    plan_code       VARCHAR(32) NOT NULL COMMENT '如 MONTHLY_30',
+    status          VARCHAR(16) NOT NULL COMMENT 'ACTIVE / EXPIRED / CANCELED',
+    credits_granted INT         NOT NULL COMMENT '本周期发放次数(30)',
+    started_at      DATETIME    NOT NULL,
+    expires_at      DATETIME    NOT NULL COMMENT 'started_at + 30 天',
+    auto_renew      TINYINT     DEFAULT 0,
+    created_at      DATETIME    DEFAULT CURRENT_TIMESTAMP,
+    updated_at      DATETIME    DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at      DATETIME    DEFAULT NULL,
+    KEY idx_membership_user (user_id, status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='会员订阅(本次仅建表)';

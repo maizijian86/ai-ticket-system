@@ -13,6 +13,25 @@
     <artifactId>common</artifactId>
     <packaging>jar</packaging>
 
+    <build>
+        <plugins>
+            <!--
+              common 是被其他模块依赖的库模块，没有 main 类，不能打成可执行 jar。
+              spring-boot-maven-plugin 由根 pom 继承而来，默认会把 repackage 绑定到
+              package 阶段，导致 `mvn install` 在 common 上报 "Unable to find main class"
+              并留下一个空 jar（其他模块运行时就会 ClassNotFoundException）。
+              这里显式跳过，使 common 产出普通库 jar。
+            -->
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+                <configuration>
+                    <skip>true</skip>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+
     <dependencies>
         <dependency>
             <groupId>org.springframework.boot</groupId>

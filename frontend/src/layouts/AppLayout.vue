@@ -10,7 +10,18 @@
         <span v-show="!isCollapsed" class="logo-text">DevMatch</span>
       </div>
 
-      <!-- 导航菜单 -->
+      <!--
+        导航菜单。
+
+        此处原有「我的需求 / 待处理 / 我接的单 / 已完成」四项 —— 它们说的是和个人
+        流水一样的事，只是换了个位置：同一个"我的工单"有两个入口、两份几乎一样的
+        列表，改一边忘另一边就漂移。现已删掉，个人流水统一由需求大厅顶上的卡片
+        承载（那几张卡按身份分叉，见 views/ticket/TicketList.vue）。
+
+        删掉的是入口，不是功能：那四个页面也一并删了，对应的 URL 在 router 里
+        重定向回 /tickets。侧边栏按身份增减条目这件事本身也取消了 —— 分叉挪到了
+        大厅的卡片上，侧边栏对所有人长得一样。
+      -->
       <el-menu
         :default-active="activeMenu"
         :collapse="isCollapsed"
@@ -21,22 +32,6 @@
         <el-menu-item index="/tickets" class="menu-item">
           <el-icon><List /></el-icon>
           <template #title>需求大厅</template>
-        </el-menu-item>
-        <el-menu-item index="/my-tickets" class="menu-item">
-          <el-icon><User /></el-icon>
-          <template #title>我的需求</template>
-        </el-menu-item>
-        <el-menu-item index="/pending" class="menu-item">
-          <el-icon><Clock /></el-icon>
-          <template #title>待处理</template>
-        </el-menu-item>
-        <el-menu-item index="/accepted" class="menu-item">
-          <el-icon><Suitcase /></el-icon>
-          <template #title>我接的单</template>
-        </el-menu-item>
-        <el-menu-item index="/completed" class="menu-item">
-          <el-icon><Finished /></el-icon>
-          <template #title>已完成</template>
         </el-menu-item>
         <el-menu-item index="/projects" class="menu-item">
           <el-icon><Folder /></el-icon>
@@ -68,8 +63,8 @@
           </el-icon>
         </div>
         <div class="header-right">
-          <!-- 未登录显示登录按钮 -->
-          <el-button v-if="!authStore.token" @click="router.push('/login')" class="btn-glass btn-glass-primary">
+          <!-- 未登录显示登录按钮。开的是浮层卡片，不再是 /login 整页（该路由已删） -->
+          <el-button v-if="!authStore.token" @click="authStore.openAuthCard('login')" class="btn-glass btn-glass-primary">
             登录
           </el-button>
           <!-- 已登录显示用户信息 -->
@@ -95,6 +90,13 @@
         <router-view :key="route.fullPath" />
       </el-main>
     </el-container>
+
+    <!--
+      登录/注册浮层。挂在这里而不是各页面里，是因为"什么时候需要登录"散落在
+      大厅、工单详情、顶栏、axios 拦截器——它们只需要调 store 的 openAuthCard()，
+      浮层由布局统一渲染，全站只有一份。
+    -->
+    <AuthCardOverlay />
   </el-container>
 </template>
 
@@ -102,9 +104,9 @@
 import { ref, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores'
+import AuthCardOverlay from '@/components/auth/AuthCardOverlay.vue'
 import {
-  List, User, Clock, Suitcase, Finished, Reading, Setting,
-  Folder, Fold, Expand, UserFilled, ArrowDown, Monitor
+  List, Reading, Setting, Folder, Fold, Expand, UserFilled, ArrowDown, Monitor
 } from '@element-plus/icons-vue'
 
 const router = useRouter()
@@ -122,7 +124,10 @@ function handleMenuSelect(index: string) {
 async function handleCommand(command: string) {
   if (command === 'logout') {
     await authStore.logoutRemote()
-    router.push('/login')
+    // 登出后回大厅并弹登录卡片：/login 整页路由已删，而且用户登出后最可能的
+    // 下一步就是"换个账号登录"，直接把卡片摆出来比留一个空页面合理。
+    router.push('/tickets')
+    authStore.openAuthCard('login')
   }
 }
 </script>

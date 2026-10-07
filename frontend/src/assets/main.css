@@ -655,6 +655,107 @@ a:hover {
   padding: 20px;
 }
 
+/* 选项卡覆盖 */
+/* el-tabs 是本主题此前漏掉的组件之一（el-alert 同样漏了，见下）：
+   下面把卡片/表格/输入框/下拉/弹窗都覆盖了，
+   唯独没管 el-tabs，于是 type="border-card" 一直吃 Element Plus 的默认浅色样式
+   （--el-bg-color-overlay: #fff）——在深色背景上顶出一整块纯白面板，而面板里的
+   文字继承 --text-secondary（白 70%），白底白字，等于什么都看不见。
+
+   之前没暴露，是因为 AI 内容一直加载不出来（前端全局 30 秒超时把它掐断了），
+   那块面板里只有一个蓝色按钮，颜色本来就是对的；前端超时修好、内容真正渲染出来
+   之后，整块白面板才显形。ProjectDetail 的选项卡是同一处问题，一并修掉。 */
+.el-tabs--border-card {
+  background: var(--glass-bg) !important;
+  border: 1px solid var(--glass-border) !important;
+  border-radius: var(--radius-lg);
+}
+
+.el-tabs--border-card > .el-tabs__header {
+  background: rgba(255, 255, 255, 0.05) !important;
+  border-bottom: 1px solid var(--glass-border) !important;
+}
+
+.el-tabs--border-card > .el-tabs__header .el-tabs__item {
+  color: var(--text-secondary) !important;
+  border: 1px solid transparent !important;
+}
+
+/* 选中页签：Element Plus 默认给它 --el-bg-color-overlay（纯白），必须显式压掉。
+   样式与 .el-select-dropdown__item.is-selected 保持一致（白字 + 35% 主色底）：
+   直接拿 --accent-primary 当文字色在深色底上偏暗（#007AFF 对比度约 3:1），
+   而这个主题里"选中"向来是白字压主色底。 */
+.el-tabs--border-card > .el-tabs__header .el-tabs__item.is-active {
+  color: #ffffff !important;
+  background: rgba(0, 122, 255, 0.35) !important;
+  border-color: var(--glass-border) !important;
+  font-weight: 600;
+}
+
+.el-tabs__content,
+.el-tab-pane {
+  background: transparent !important;
+  color: var(--text-primary) !important;
+}
+
+/* 分页器覆盖（el-pagination）—— 与 el-tabs / el-alert 同一类漏覆盖。
+   EP 的 --el-pagination-bg-color 默认 #fff，直接给每个页码格子刷上纯白底，
+   连禁用的上一页/下一页也是白的（--el-pagination-button-disabled-bg-color），
+   于是深色页面底部顶着三块白方块；当前页码是 #409eff 压在纯白上（--el-color-primary
+   对 #fff 约 2.2:1），比 el-alert 那块还低。
+   这里只收底色和文字色，选中态沿用本主题「白字压主色底」的既有写法（见上面 el-tabs
+   那段），跟前后组件保持一致；页码本身的蓝色语义不丢。 */
+.el-pagination {
+  --el-pagination-bg-color: transparent;
+  --el-pagination-button-bg-color: var(--glass-bg);
+  --el-pagination-button-disabled-bg-color: transparent;
+  --el-pagination-text-color: var(--text-secondary);
+  --el-pagination-button-color: var(--text-secondary);
+  --el-pagination-button-disabled-color: var(--text-tertiary);
+  --el-pagination-hover-color: var(--accent-primary);
+  color: var(--text-secondary);
+}
+
+.el-pagination .el-pager li,
+.el-pagination button.btn-prev,
+.el-pagination button.btn-next {
+  background: transparent !important;
+  color: var(--text-secondary) !important;
+  border-radius: var(--radius-sm);
+}
+
+.el-pagination .el-pager li:hover,
+.el-pagination button.btn-prev:not(:disabled):hover,
+.el-pagination button.btn-next:not(:disabled):hover {
+  color: var(--accent-primary) !important;
+}
+
+.el-pagination .el-pager li.is-active {
+  background: rgba(0, 122, 255, 0.35) !important;
+  color: #ffffff !important;
+  font-weight: 600;
+}
+
+.el-pagination button:disabled,
+.el-pagination button:disabled:hover {
+  background: transparent !important;
+  color: var(--text-tertiary) !important;
+}
+
+/* is-background 变体（底色由按钮自己画）与「共 N 条」/每页条数那几段文字 */
+.el-pagination.is-background .el-pager li,
+.el-pagination.is-background button.btn-prev,
+.el-pagination.is-background button.btn-next {
+  background: var(--glass-bg) !important;
+}
+
+.el-pagination__total,
+.el-pagination__jump,
+.el-pagination__goto,
+.el-pagination__classifier {
+  color: var(--text-secondary) !important;
+}
+
 /* 提示条覆盖（el-alert）—— 与上面那批组件覆盖是同一类问题：Element Plus 给每种
    类型配的底色是 *-light-9（info 就是 #f4f4f5，近乎纯白），本主题没覆盖，于是在
    深色玻璃弹窗里顶出一块白板。更要命的是文字色：EP 按类型给的是 --el-color-info

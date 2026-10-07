@@ -10,8 +10,27 @@ import type {
   ChatMessageDTO,
   SendChatRequest,
   CompleteTicketRequest,
-  ApproveTicketRequest
+  ApproveTicketRequest,
+  AiQuotaStatusDTO
 } from '@/types'
+
+/**
+ * AI 接口专用的超时（10 分钟）。
+ *
+ * 这几个接口都是**同步阻塞**地调大模型，耗时以分钟计，而 axios 实例的全局
+ * 默认超时只有 30 秒 —— 不逐个覆盖就必然在生成完成前被前端掐断，报
+ * "timeout of 30000ms exceeded"。本机实测（deepseek-v4-pro）：
+ *
+ *   /ai-chat        约 29 秒   —— 正好压在 30 秒线上，所以时灵时不灵
+ *   /download-prd   约 190 秒
+ *   /ai-analysis    约 275 秒  —— 内部串行调两次模型（技术栈 + 任务拆解），
+ *                                 且实测波动很大，有一轮超过 300 秒
+ *
+ * 取 10 分钟而不是贴着实测值：后端单次模型调用允许 5 分钟、失败还会重试一次，
+ * ai-analysis 的最坏情况是两个调用各自跑满。宁可让用户多等，也不要等到了
+ * 结果却因为客户端提前放弃而拿不到。
+ */
+const AI_TIMEOUT = 600000
 
 export const ticketApi = {
   createTicket(data: CreateTicketRequest) {
@@ -26,22 +45,13 @@ export const ticketApi = {
     return request.get<any, PageResult<TicketDTO>>('/v1/tickets', { params })
   },
 
-  listMyTickets(page: number = 1, pageSize: number = 10) {
-    return request.get<any, PageResult<TicketDTO>>('/v1/tickets/my', { params: { page, pageSize } })
-  },
-
-  /**
-   * 「我接的单」—— 后端 /my/accepted = handler_id = 我，**不限状态**。
-   *
-   * 「不管完不完成」正是这个菜单要的语义。不要退回用 listTickets 表达它：
-   * 那条路会命中「只查大厅可见」谓词，而接单会把 is_visible 置为 false，
-   * 于是接过的单一律查不出来（这正是这个菜单此前恒为空的原因）。
-   */
-  listMyAcceptedTickets(page: number = 1, pageSize: number = 10) {
-    return request.get<any, PageResult<TicketDTO>>('/v1/tickets/my/accepted', {
-      params: { page, pageSize }
-    })
-  },
+  // 此处原有 listMyTickets（/my）和 listMyAcceptedTickets（/my/accepted）两个封装。
+  // 它们的唯一调用方是「我的需求」和「我接的单」两个页面，那些页面已并入大厅的
+  // 卡片，故一并删除。后端这两个接口留着不动 —— 它们是别处也能用的读数口。
+  //
+  // 注意大厅的「我接的单」卡不再走 /my/accepted，而是走 listTickets +
+  // handlerId + includeAll：「不限状态」这个语义用 listTickets 也能表达，而
+  // 卡片要的"数字来自 /stats、列表来自 /tickets"两边同源，比多一个接口更稳。
 
   updateTicket(id: number, data: Partial<TicketDTO>) {
     return request.put<any, TicketDTO>(`/v1/tickets/${id}`, data)
@@ -82,9 +92,11 @@ export const ticketApi = {
     return request.post<any, TicketDTO>(`/v1/tickets/${id}/approve`, data)
   },
 
-  // AI开发分析
+  // AI开发分析（技术建议 + 任务拆解，一次请求里串行调两次模型）
   analyzeTicket(id: number) {
-    return request.post<any, TicketDTO>(`/v1/tickets/${id}/ai-analysis`)
+    return request.post<any, TicketDTO>(`/v1/tickets/${id}/ai-analysis`, undefined, {
+      timeout: AI_TIMEOUT
+    })
   },
 
   // 获取聊天记录
@@ -98,17 +110,28 @@ export const ticketApi = {
   },
 
   // 下载PRD文档
-  // 注意：该接口是同步生成，后端要调用大模型写完整篇 PRD，实测约 180 秒。
-  // 全局默认超时是 30 秒，不覆盖的话请求必然在生成完成前就被前端掐断。
   downloadPrd(id: number) {
     return request.get(`/v1/tickets/${id}/download-prd`, {
       responseType: 'blob',
-      timeout: 300000
+      timeout: AI_TIMEOUT
     })
   },
 
   // AI开发助手聊天
   aiChat(id: number, message: string) {
-    return request.post<any, ChatMessageDTO>(`/v1/tickets/${id}/ai-chat`, { message })
+    return request.post<any, ChatMessageDTO>(`/v1/tickets/${id}/ai-chat`, { message }, {
+      timeout: AI_TIMEOUT
+    })
+  },
+
+  /**
+   * 工单的 AI 额度状态：账户剩余次数 + 三个功能各自能不能按。
+   *
+   * 这个接口**不在网关的匿名白名单里**，未登录调用会 401。所以详情页只在已登录时
+   * 才发这个请求（见 TicketDetail.vue 的 loadAiUsage）—— 访客看到的是"登录后可用"，
+   * 不需要也不该知道别人的余额。
+   */
+  getAiUsage(id: number) {
+    return request.get<any, AiQuotaStatusDTO>(`/v1/tickets/${id}/ai-usage`)
   }
 }

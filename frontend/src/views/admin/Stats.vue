@@ -100,7 +100,20 @@ import { ticketApi } from '@/api'
 import { Ticket, Clock, Loading, CircleCheck, Finished } from '@element-plus/icons-vue'
 import type { TicketStatsDTO } from '@/types'
 
-const stats = ref<TicketStatsDTO>({ open: 0, accepted: 0, pendingApproval: 0, completed: 0 })
+// 后 4 个字段是给大厅的个人卡片用的，本页不展示，但类型要求写全 ——
+// 别把它们从 TicketStatsDTO 上删掉（删了大厅的卡片就没了）。
+const stats = ref<TicketStatsDTO>({
+  open: 0,
+  accepted: 0,
+  pendingApproval: 0,
+  completed: 0,
+  pendingApprovalAsCreator: 0,
+  completedAsParticipant: 0,
+  createdTotal: 0,
+  handledTotal: 0,
+  activeAsCreator: 0,
+  activeAsHandler: 0
+})
 
 const total = computed(() =>
   stats.value.open + stats.value.accepted + stats.value.pendingApproval + stats.value.completed)

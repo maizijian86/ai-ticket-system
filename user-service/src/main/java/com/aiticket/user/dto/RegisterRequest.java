@@ -26,7 +26,16 @@ public class RegisterRequest {
     @Size(max = 100, message = "Nickname must be less than 100 characters")
     private String nickname;
 
-    private Role role; // Optional, defaults to USER if not specified
+    /**
+     * 注册身份，可选。
+     *
+     * <p>**不是**任意枚举值都能用：只接受 PUBLISHER / HANDLER，见
+     * UserService.SELF_REGISTERABLE_ROLES。传 ADMIN 会被 400 拒掉（此前是原样
+     * 落库的，等于一个对外可用的提权入口）。
+     *
+     * <p>留 null 仍然落到 USER，只为不破坏已有调用方；新前端一定会带值。
+     */
+    private Role role;
 
     private String githubUsername;
 

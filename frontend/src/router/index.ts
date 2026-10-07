@@ -3,18 +3,15 @@ import type { RouteRecordRaw } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 
 const routes: RouteRecordRaw[] = [
-  {
-    path: '/login',
-    name: 'Login',
-    component: () => import('@/views/auth/Login.vue'),
-    meta: { requiresAuth: false }
-  },
-  {
-    path: '/register',
-    name: 'Register',
-    component: () => import('@/views/auth/Register.vue'),
-    meta: { requiresAuth: false }
-  },
+  // 此处原有 /login 与 /register 两条整页路由（views/auth/Login.vue、
+  // Register.vue）。登录/注册改成了屏幕中间的浮层卡片（components/auth/），
+  // 两个页面已删除。
+  //
+  // 这两个 URL 保留为**重定向**而不是直接抹掉：它们在聊天记录、收藏夹里到处都是，
+  // 掉进 NotFound 比回到大厅不友善。重定向的目标是 /tickets —— 大厅是公开页，
+  // 未登录也能正常渲染，用户在那里能直接找到"登录"入口。
+  { path: '/login', redirect: '/tickets' },
+  { path: '/register', redirect: '/tickets' },
   {
     path: '/',
     component: () => import('@/layouts/AppLayout.vue'),
@@ -33,9 +30,13 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/ticket/TicketCreate.vue')
       },
       {
+        // 详情页对访客开放：AI 内容之外的字段全部可见，AI 区域在页面内遮罩。
+        // 落地这条 meta 之后，访客点开一张工单不会再被守卫弹走 —— 他是这个
+        // 漏斗里最该被留住的人，弹走就什么也留不下了。
         path: 'tickets/:id',
         name: 'TicketDetail',
-        component: () => import('@/views/ticket/TicketDetail.vue')
+        component: () => import('@/views/ticket/TicketDetail.vue'),
+        meta: { requiresAuth: false }
       },
       {
         path: 'tickets/:id/edit',
@@ -47,26 +48,19 @@ const routes: RouteRecordRaw[] = [
         name: 'TicketChat',
         component: () => import('@/views/ticket/TicketChat.vue')
       },
-      {
-        path: 'my-tickets',
-        name: 'MyTickets',
-        component: () => import('@/views/ticket/MyTickets.vue')
-      },
-      {
-        path: 'pending',
-        name: 'PendingTickets',
-        component: () => import('@/views/ticket/PendingTickets.vue')
-      },
-      {
-        path: 'accepted',
-        name: 'AcceptedTickets',
-        component: () => import('@/views/ticket/AcceptedTickets.vue')
-      },
-      {
-        path: 'completed',
-        name: 'CompletedTickets',
-        component: () => import('@/views/ticket/CompletedTickets.vue')
-      },
+      // 此处原有 /my-tickets、/pending、/accepted、/completed 四条路由和它们对应的
+      // 四个页面（views/ticket/{MyTickets,PendingTickets,AcceptedTickets,
+      // CompletedTickets}.vue）。那四页说的是和个人流水一样的事，只是换了个位置，
+      // 已并进需求大厅顶上的卡片（按身份分叉，见 views/ticket/TicketList.vue），
+      // 页面一并删除。
+      //
+      // 下面四条是**重定向**而不是直接抹掉：这几个 URL 在侧边栏挂过很久，
+      // 用户书签、聊天里贴过的链接都会指向它们，留着 redirect 比掉进 NotFound
+      // 友善得多。
+      { path: 'my-tickets', redirect: '/tickets' },
+      { path: 'pending', redirect: '/tickets' },
+      { path: 'accepted', redirect: '/tickets' },
+      { path: 'completed', redirect: '/tickets' },
       {
         path: 'knowledge',
         name: 'Knowledge',
@@ -125,10 +119,18 @@ router.beforeEach((to, _from, next) => {
   const authStore = useAuthStore()
 
   if (to.meta.requiresAuth !== false && !authStore.token) {
-    next('/login')
-  } else if (to.meta.requiresAdmin && authStore.userInfo?.role !== 'ADMIN') {
+    // 需要登录的页面 → 回大厅 + **把登录卡片摆出来**。
+    //
+    // 这里不再 next('/login')：整页登录路由已删。更重要的是，"拦下来什么都不说"
+    // 是原来最大的问题 —— 用户点了个按钮，页面无理由地跳走，他只会以为坏了。
+    // 开卡片等于把"为什么被拦 + 怎么办"直接说清楚。
+    //
+    // 代价是丢失了原目标路径（比如从 /tickets/new 被弹回来，登录后停在 /tickets
+    // 而不是新建页）。要补这个需要把 redirect 存进 store 或 query，属于体验优化，
+    // 这次不做 —— 保持简单，且不会留下"登录后跳到一个权限已经变化的旧页面"的坑。
     next('/tickets')
-  } else if ((to.path === '/login' || to.path === '/register') && authStore.token) {
+    authStore.openAuthCard('login')
+  } else if (to.meta.requiresAdmin && authStore.userInfo?.role !== 'ADMIN') {
     next('/tickets')
   } else {
     next()

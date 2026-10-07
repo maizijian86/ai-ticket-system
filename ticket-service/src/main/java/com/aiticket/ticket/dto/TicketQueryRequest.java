@@ -12,6 +12,20 @@ public class TicketQueryRequest {
     private Long creatorId;
     private Long excludeCreatorId;
     private Long handlerId;
+
+    /**
+     * 「我参与的」：creatorId = 我 **或** handlerId = 我。
+     *
+     * creatorId / handlerId 是各自独立的 AND 谓词，表达不了"我是发布者或我是接单人"，
+     * 而「已完成」两边都该看得见自己那单 —— 发布者不该因为没接过单就查不到自己发布的
+     * 已完成工单（这正是"已完成只有接单人口径"那个 bug）。
+     *
+     * 只在确实要"两边合起来看"时用（目前是「已完成」）。「待验收」不要用它：
+     * PENDING_APPROVAL 下该动作的人是 creator，接单人看到的是"我已提交、等对方验收"，
+     * 那是「待处理」的语义，用 participantId 会把两种口径混在一起。
+     */
+    private Long participantId;
+
     private TicketStatus status;
 
     /**

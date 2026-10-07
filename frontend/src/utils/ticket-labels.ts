@@ -4,11 +4,11 @@ import type { TicketCategory, TicketStatus } from '@/types'
  * 工单状态 / 分类的展示映射 —— 全站唯一一份。
  *
  * 这里以前是 7 份逐字复制的 getStatusLabel/getStatusType（还有 5 份分类的），
- * 散在 AcceptedTickets / CompletedTickets / MyTickets / PendingTickets /
- * TicketChat / TicketDetail / TicketList 里。复制出来的东西必然会漂移，
- * 而且已经漂了：同一个后端的 REJECTED，6 个页面显示「已拒绝」，
- * 「待处理」显示「已驳回」—— 接单者在这一页看到"驳回理由"，翻到另一页
- * 状态却写着"已拒绝"，像两件事。
+ * 散在 TicketChat / TicketDetail / TicketList 和几个列表页里（那几个列表页
+ * ——AcceptedTickets / CompletedTickets / MyTickets / PendingTickets—— 已并入
+ * 大厅的卡片，文件删除）。复制出来的东西必然会漂移，而且已经漂了：同一个后端的
+ * REJECTED，6 个页面显示「已拒绝」，「待处理」显示「已驳回」—— 接单者在这一页
+ * 看到"驳回理由"，翻到另一页状态却写着"已拒绝"，像两件事。
  *
  * 所以合到一处：以后再改文案只有这一个地方可改。
  */

@@ -1,0 +1,42 @@
+需求：实现前后端双Token登录体系（AccessToken + RefreshToken）
+后端：SpringBoot Java，Redis存储refresh状态
+前端：Axios实现请求响应拦截
+
+### 后端设计约定
+1. Token定义
+- AccessToken：JWT，有效期15分钟，payload携带userId、角色信息；用于业务接口鉴权，放在HTTP请求头 Authorization: Bearer <accessToken>
+- RefreshToken：UUID随机字符串，有效期7天；**只存在HttpOnly Cookie中，不返回在JSON响应**；Cookie配置 HttpOnly、Secure、SameSite=Lax。
+- 存储：Redis key=refresh:{refreshToken}, value=userId，TTL等于refreshToken有效期。
+- 策略：RefreshToken轮换模式，每次刷新token，旧refreshToken在Redis删除，生成新refreshToken存入Redis。
+
+2. 接口清单
+① POST /auth/login 登录接口（放行）
+入参：username,password
+成功返回：{code:200, data:{accessToken: "xxx"}}；同时Set-Cookie写入refreshToken
+② POST /auth/refresh 刷新token接口（放行，不需要AccessToken）
+只读取Cookie中的refreshToken校验Redis。
+成功：返回新accessToken，同时Set-Cookie写入新refreshToken，删除Redis旧refreshToken
+失效（redis无记录）：返回401，提示重新登录
+③ POST /auth/logout 登出接口
+后端删除redis中refreshToken，清除refreshToken Cookie；前端清空本地accessToken
+④ 所有业务接口：必须校验AccessToken，AccessToken过期返回业务码40102；token非法/不存在返回401。
+
+3. 后端约束
+- 禁止使用refreshToken访问业务接口，拦截器校验到直接拒绝
+- 登录、刷新接口增加限流防护
+- 用户下线逻辑：后端直接删除redis中的refreshToken，token立即失效
+
+### 前端设计约定
+1. 存储：accessToken存在前端内存（优先）/localStorage；refreshToken交给浏览器Cookie自动管理，前端JS**不能读取refreshToken**。
+2. Axios全局拦截器
+- 请求拦截：自动在header加上 Authorization: Bearer + accessToken
+- 响应拦截：捕获错误码40102（access过期）
+    ✅ 增加全局锁：同一时间只能执行一次refresh请求，避免多个并发请求重复刷新token
+    ✅ 刷新成功：使用新accessToken重试失败的原始请求
+    ✅ 刷新接口返回401：清空本地accessToken，路由跳转到登录页
+3. 异常：网络错误、401鉴权失败，直接提示登录失效
+
+请你输出：
+1. 后端接口API文档（入参、返回值、错误码）
+2. 后端核心代码（controller、redis操作、jwt工具、拦截器、用户上下文）
+3. 前端axios完整拦截器代码，包含并发锁处理逻辑

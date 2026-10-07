@@ -48,3 +48,4 @@ jwt:
 logging:
   level:
     org.springframework.cloud.gateway: DEBUG
+    com.aiticket.gateway: DEBUG

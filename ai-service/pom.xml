@@ -35,21 +35,32 @@
             <artifactId>lombok</artifactId>
             <optional>true</optional>
         </dependency>
-        <!-- LangChain4j -->
+        <!-- LangChain4j - 与consultant项目一致 -->
+        <dependency>
+            <groupId>dev.langchain4j</groupId>
+            <artifactId>langchain4j-open-ai-spring-boot-starter</artifactId>
+            <version>1.0.1-beta6</version>
+        </dependency>
         <dependency>
             <groupId>dev.langchain4j</groupId>
             <artifactId>langchain4j-spring-boot-starter</artifactId>
-            <version>0.36.0</version>
+            <version>1.0.1-beta6</version>
         </dependency>
         <dependency>
             <groupId>dev.langchain4j</groupId>
-            <artifactId>langchain4j-open-ai</artifactId>
-            <version>0.36.0</version>
+            <artifactId>langchain4j-reactor</artifactId>
+            <version>1.0.1-beta6</version>
         </dependency>
+        <!-- Easy RAG -->
         <dependency>
             <groupId>dev.langchain4j</groupId>
-            <artifactId>langchain4j-core</artifactId>
-            <version>0.36.0</version>
+            <artifactId>langchain4j-easy-rag</artifactId>
+            <version>1.0.1-beta6</version>
+        </dependency>
+        <!-- Redis -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-redis</artifactId>
         </dependency>
     </dependencies>
 

@@ -21,6 +21,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -34,6 +35,20 @@ public class UserService {
     private final JwtUtil jwtUtil;
     private final RefreshTokenService refreshTokenService;
 
+    /**
+     * 自助注册时**允许**客户端指定的身份。
+     *
+     * <p>此前这里是裸枚举、原样落库 —— 任何人都能往 /auth/register 里塞
+     * role=ADMIN 把自己注册成管理员。注册接口是 permitAll 的，所以那是一个
+     * 从外部就能用的提权入口，不是理论问题。
+     *
+     * <p>ADMIN 不在白名单里：管理员只能由已有管理员在 /users 里改出来
+     * （UserService.updateUser 仍接受任意 Role，那是管理端内部路径）。
+     * USER 也不在白名单里 —— 它是存量兼容身份，新账号不该再落到这个"两边都能"
+     * 的模糊值上；null 仍然映射到它只是为了不破坏已有调用方。
+     */
+    private static final Set<Role> SELF_REGISTERABLE_ROLES = Set.of(Role.PUBLISHER, Role.HANDLER);
+
     @Transactional
     public UserDTO register(RegisterRequest request) {
         if (userRepository.existsByUsername(request.getUsername())) {
@@ -43,12 +58,17 @@ public class UserService {
             throw new BusinessException(400, "Email already exists");
         }
 
+        Role role = request.getRole();
+        if (role != null && !SELF_REGISTERABLE_ROLES.contains(role)) {
+            throw new BusinessException(400, "该身份不允许自助注册");
+        }
+
         User user = new User();
         user.setUsername(request.getUsername());
         user.setPassword(passwordEncoder.encode(request.getPassword()));
         user.setEmail(request.getEmail());
         user.setNickname(request.getNickname() != null ? request.getNickname() : request.getUsername());
-        user.setRole(request.getRole() != null ? request.getRole() : Role.USER);
+        user.setRole(role != null ? role : Role.USER);
         user.setStatus("active");
         user.setGithubUsername(request.getGithubUsername());
         user.setGithubRepos(request.getGithubRepos());
@@ -167,9 +187,24 @@ public class UserService {
         return PageResult.of(userPage.getTotalElements(), page, pageSize, dtos);
     }
 
+    /**
+     * 「可接单的人」列表。
+     *
+     * <p>此前完全没按角色过滤，返回所有 active 用户 —— 加了 PUBLISHER 之后，
+     * 发布者也会被当成接单者返回。这里改成排除 PUBLISHER。
+     *
+     * <p>用"排除"而不是"只留 HANDLER"，是因为 USER 是"发布与接单都能做"的存量
+     * 身份，把它排除掉会让 6 个老账号从这份名单里消失。判据是"这人能不能接单"，
+     * 不是"这人是不是恰好叫 HANDLER"。
+     *
+     * <p>同类问题还有一处没动：UserSkillRepository.findAvailableHandlers() 的
+     * JPQL 只 join 了 status、没 join role，它返回的"可用接单手"里同样会混进
+     * 发布者。那个接口目前没有前端调用方，留待批次 3 一起处理。
+     */
     public List<UserDTO> listHandlers() {
         return userRepository.findByStatus("active")
                 .stream()
+                .filter(u -> u.getRole() != Role.PUBLISHER)
                 .map(this::toDTO)
                 .collect(Collectors.toList());
     }

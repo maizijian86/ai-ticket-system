@@ -1,0 +1,192 @@
+角色拆分 plan（2026-09-25 策划稿，明天开工）
+分支：chore/track-frontend
+
+====================================================================
+零、今天已定的事（用户拍板，不要再问）
+====================================================================
+1. 身份模型选「扩 Role 枚举」，ADMIN 先不动，先区分「发布者 / 接单者」两种身份。
+   —— 不走正交的 userType 字段，也不做「不存身份、菜单动态出」。
+2. 发布者侧的「待处理」改名「待审核」，装「待我验收的单」：
+   status = PENDING_APPROVAL AND creator_id = 我。
+3. 【命名已定，2026-09-26，Claude 依用户授权决定】枚举最终为：
+   USER（存量兼容，语义「两者都能」）、HANDLER（接单者）、PUBLISHER（发布者）、ADMIN（不动）。
+   - HANDLER 是**复用上一版的名字**：那 3 行存量数据零迁移，休眠的派单字段（user_skill、
+     handler_id / handler_name / recommended_handler_id、listHandlers 系列）语义自动对齐。
+   - 未采用 DEVELOPER：会让"角色叫开发者、字段叫 handler"长期错位。
+   - UI 文案照旧显示「开发者 / 接单者」，枚举值不影响界面用词。
+   - 存量 11 个账号**一个都不改数据**（理由见「四」的说明）。
+
+
+====================================================================
+一、现状事实（已逐条核实，行号可直接跳）
+====================================================================
+· Role 枚举只有两个值：common/src/main/java/com/aiticket/common/enums/Role.java:3-6（USER / ADMIN）
+· 注册链路后端**本来就支持传 role**，只是前端一直没传：
+    - user-service/.../dto/RegisterRequest.java:29  private Role role;  // Optional, defaults to USER
+    - user-service/.../service/UserService.java:51   user.setRole(request.getRole() != null ? request.getRole() : Role.USER)
+    - 前端 frontend/src/views/auth/Register.vue:103-108 只发 username/email/nickname/password
+    - frontend/src/types/index.ts:16-21 RegisterRequest 无 role 字段
+  → 也就是说「注册时选身份」的后端通路是现成的，前端补一个选择器即可（前端选择器设计的大气一点，不要只是一个下拉菜单，）。
+· 角色的传递链（已经通，不用新建）：
+    LoginResponse.role（user-service/.../dto/LoginResponse.java:10-17）
+      → JWT claim（common/.../util/JwtUtil.java:35-49，refresh token 不含 role）
+      → 网关注入 X-User-Role（api-gateway/.../JwtAuthenticationFilter.java:96-106）
+      → 前端 store（frontend/src/stores/auth.ts:26-33）
+· 全站按角色分支的地方只有这几处（改动时必查，漏改会静默走 fallback、不报错）：
+    后端 TicketController.java:53-56   "ADMIN".equals(role) → isAdmin
+    前端 types/index.ts:34             export type Role = 'USER' | 'ADMIN'
+    前端 stores/auth.ts:12             isAdmin = role === 'ADMIN'
+    前端 stores/auth.ts:13             isHandler = computed(() => true)   // 写死为真
+    前端 router/index.ts:129           to.meta.requiresAdmin && role !== 'ADMIN'
+    前端 layouts/AppLayout.vue:49      <el-sub-menu v-if="authStore.isAdmin">   ← 菜单里唯一的条件渲染
+    前端 views/admin/UserManage.vue:77-91  getRoleType/getRoleLabel（未命中会显示英文原文，不报错）
+· 库里 11 个账号的实际 role：
+    ADMIN   : 1 admin、5 admin2
+    HANDLER : 2 handler_zhang、3 handler_li、8 maizijian68
+    USER    : 4 user_wang、6 maizijian86、7 maizijian866、9 testuser、10 e2edev01、11（中文名测试号）
+· **地雷（必须先拆）**：user-service/.../entity/User.java:32-34 是 @Enumerated(EnumType.STRING)，
+  库里存在枚举外的值 'HANDLER' → Hibernate 读这几行直接抛
+  `No enum constant com.aiticket.common.enums.Role.HANDLER`。
+  影响面不止那三人登录：UserService.listUsers(:160) / listHandlers(:171) 只要一页里捞到坏行就整页 500。
+
+· 【考古】这 3 行 HANDLER 的来历（2026-09-25 追查；用户确认是上一版的遗留，追查结果证实并补充）：
+    commit 0e840f1 (2026-04-18) "feat: 合并HANDLER和USER角色，优化工单审批流程"，正文写着
+    「移除Role.HANDLER枚举，所有用户均可接单」，并把 listHandlers() 从
+    findByRoleAndStatus(Role.HANDLER, "active") 改成 findByStatus("active") —— 即"所有人都是接单者"。
+    那 3 行是这次合并漏掉的数据：id 2/3 建号于 2026-03-31（合并之前，从未登录过），
+    id 8 maizijian68 建号于 2026-04-18 21:52、只登录过一次（21:53），之后再没登过。
+  **结论：这次要做的拆分，本质是把 2026-04-18 那个决定回退。** 当年的退出理由原文就写在 commit 里
+    ——「所有用户均可接单」。所以这次必须给那个理由一个答案，否则半年后会被再合一次。
+    答案见「批次 2」：菜单按身份分，但权限按"这一单里我站哪边"判 —— 身份决定默认视图，
+    不等于把一个账号永久锁死在一边。
+· 【考古】那次合并留下的化石（都是活的死代码，清理还是复活要在这里做决定）：
+    frontend/src/stores/auth.ts:13   isHandler = computed(() => true) // All users can handle tickets
+                                     ← 注释就是 0e840f1 的原话；这个 store 字段**没有消费方**
+                                       （TicketDetail.vue:419 另有一个按单判断的局部同名变量），纯死代码。
+    user-service/.../controller/UserController.java:59-65   /v1/users/handlers、/v1/users/handlers/available
+    user-service/.../service/UserService.java:170 listHandlers()、:248 listAvailableHandlers()、:255 getHandlerSkills()
+    frontend/src/api/user.ts:25-30   listHandlers / listAvailableHandlers 的前端封装（无任何视图调用）
+    db  user_skill 表（现 9 行；注册时 UserService.java:59-65 会自动建一行，currentLoad=0 / maxLoad=10）
+    ticket.recommended_handler_id（0 行非空）→ 上一版的「AI 开发者匹配」整个是休眠的
+    common/.../notification/NotificationService.java:72   注释仍写 "role = HANDLER"，逻辑其实是广播
+  这套东西本来就是为"接单者"这个概念造的（user_skill 有 skill_tags / expertise_level / current_load /
+  max_load / satisfaction_score，正是派单要用的字段）。角色一拆回来，它们语义就恢复了 —— 也就是说
+  当年拆分的动机之一（AI 匹配派单）从来没被删掉，只是被架空了。
+
+====================================================================
+二、两个必须顺手修的查询 bug（同源，与角色无关）
+====================================================================
+报障现象：大厅上方「待验收」查不出来；左侧「待处理」也查不出来；但「我的需求」里能查到并显示「去验收」。
+
+根因：这两处把归属收窄成 handler_id（接单人），而 PENDING_APPROVAL 这个状态下该动作的人是
+creator_id（发布者）。报障账号 maizijian86（id=6）在这批单里是发布者，所以按接单人查恒为 0。
+
+实库复现（id=6）：
+    大厅「待验收」 status=PENDING_APPROVAL AND handler_id=6                         → 0 行
+    「待处理」    handler_id=6 AND status IN (ACCEPTED,PENDING_APPROVAL,REJECTED)   → 1 行（2026-08-12 的历史样例单，无关）
+    「我的需求」  creator_id=6                                                      → 46 行，其中 9 条 PENDING_APPROVAL（就是那些「去验收」）
+    注：全部 9 条待验收单的 creator_id=6、handler_id=10/11。
+
+定位（前端传参错，不是后端查询错）：
+    frontend/src/views/ticket/TicketList.vue:239        handlerId: mine ? authStore.userInfo?.id : undefined   ← 「待验收」被归进 mine
+    frontend/src/views/ticket/TicketList.vue:227         MY_STATUS_FILTERS = ['ACCEPTED','PENDING_APPROVAL','COMPLETED']
+    frontend/src/views/ticket/PendingTickets.vue:109    handlerId: me + statuses: 'ACCEPTED,PENDING_APPROVAL,REJECTED'
+
+后端**早就支持发布者口径，一行都不用改**：
+    ticket-service/.../dto/TicketQueryRequest.java:12       private Long creatorId;
+    ticket-service/.../service/TicketService.java:414-416    creatorId → criteriaBuilder.equal(root.get("creatorId"), ...)
+    ticket-service/.../controller/TicketController.java:51   GET /api/v1/tickets 按对象绑定 query（creatorId 能从 query string 绑进去）
+  → 修法：前端把这两处的 handlerId 换成 creatorId（并给 frontend/src/types/index.ts 的查询入参类型补 creatorId）。
+
+唯一的后端空档是**数字**：大厅卡片计数走 getStats，只有「按 handlerId 计」和「全局计」两档，
+没有 creator 口径（ticket-service/.../service/TicketService.java:370-389，Repository:45）。
+发布者侧「待验收」要显示正确数字，得加一档按 creatorId 计数。
+
+顺带修正一处同类问题（用户没提，但同一个口径错误）：
+「已完成」也是接单人口径 —— frontend/src/views/ticket/CompletedTickets.vue:90-92 传的是
+status=COMPLETED + handlerId=me，大厅的「已完成」卡同理。所以发布者在「已完成」里看不到自己
+发布的已完成单。用户要求「已完成双方都能看」，缺的正是这块。
+
+====================================================================
+三、批次划分（建议顺序；第 1 步明天先跟用户确认再动手）
+====================================================================
+【批次 0】拆地雷：把 HANDLER 加回 Role 枚举（命名已定，见「零」第 3 条）
+  - common/.../enums/Role.java 加回 HANDLER 常量 → 库里那 3 行立刻合法，**零数据迁移**。
+    务必不要走 UPDATE users SET role='DEVELOPER' 那条路（会与 handler_id 这套字段名错位）。
+  - 顺带把 Role.java 里的注释写清各值时，明确 USER = 存量兼容（两者都能）。
+  - 注意 ticket_chat.sender_role 里的历史 'HANDLER' 字符串是另一张表、另一套语义，不要跟着改。
+  - 验收：管理端 /admin/users 能正常打开（这是地雷的可见症状），handler_zhang 能登录。
+  - 这一批只碰 common 一个文件，但 user-service 依赖它，所以仍要 mvn package + 重启。
+
+【批次 1】修两个查询 bug（小、独立、可立刻验证）
+  - TicketList.vue: 待验收卡改为 creatorId + status=PENDING_APPROVAL + includeAll=true
+  - PendingTickets.vue: 保持 handlerId 口径（开发者的待处理就是"我接的单里进行中/待验收/被驳回"）
+  - 新增发布者侧「待审核」页（或复用 /pending 按身份切口径，见待确认 2）
+  - 后端 getStats 加 creator 口径的计数分支
+  - types/index.ts 查询入参补 creatorId
+  - 验收：用 maizijian86 登录，大厅「待验收」应出 9 条、「待审核」应出同样 9 条、
+    且「我的需求」里那 9 条的「去验收」按钮仍能正常提交。
+
+【批次 2】扩 Role 枚举 + 注册选身份 + 菜单分叉（本次的主改）
+  - Role.java：加 PUBLISHER（HANDLER 已在批次 0 加回）→ 最终 USER / HANDLER / PUBLISHER / ADMIN
+  - Register.vue：加身份选择，**用户明确要求做得大气一点，不要只放一个下拉菜单**
+    （建议两张并排的身份卡片：图标 + 「我要发布需求」/「我要接单开发」+ 一句说明，选中态明显）；
+    payload 带上 role；校验必须选，不能默认。
+  - types/index.ts:34 Role 联合类型、:16-21 RegisterRequest 补 role
+  - auth.ts：isAdmin 不动（ADMIN 先不管）；isHandler（:13）**直接删掉** —— 已 grep 确认无消费方，
+    是 0e840f1「所有用户均可接单」那句话的化石（见「一」的考古段），留着只会误导。
+  - AppLayout.vue 菜单分叉：
+      发布者：需求大厅、我的需求、[待审核]、已完成
+      接单者：需求大厅、待处理、我接的单、已完成
+      管理员：全显（保持 isAdmin 分支，别把 admin 关在门外）
+  - UserManage.vue:77-91 的角色标签映射补两个新值（漏了会静默显示英文）
+  - 文案：「待处理」在发布者侧叫「待审核」；MyTickets.vue:4 的 h2「我的工单」与菜单「我的需求」
+    不一致，顺手统一。
+  - 注意：身份改了之后，access token 里的 role 是签发时快照（30 分钟），要重新登录菜单才变；
+    refresh 会重读 DB（UserService.java:115）所以 refresh 后即生效。
+
+【批次 3】后端身份校验（真正的约束，非必须但强烈建议）
+  现状是**零校验**：TicketController.java:134-145 的 complete / approve 连 X-User-Id 都没声明，
+  理论上任何人都能验收任意工单。既然要分"发布者/接单者"，这里才是最该收敛的地方：
+    - approve 只允许该单的 creator
+    - complete 只允许该单的 handler
+    - pickup 加"发布者不能接单"（若「四」第 2 条确认为"不能"）
+  聊天署名也要一起看：TicketController.java:158-162 把 X-User-Role 原样落库到
+  ticket_chat.sender_role，前端 types/index.ts:256 的 senderType 只有 'USER'|'HANDLER'|'AI'，
+  role 值一改就会冒出没映射的值。建议**按"这一单里我是发布者还是接单人"署名**，而不是按账号角色。
+
+====================================================================
+四、需要用户确认的两个问题（开工前问；命名与存量数据已定，不再问）
+====================================================================
+【已定，不用再问】命名 HANDLER / PUBLISHER，USER 留作存量兼容，ADMIN 不动（见「零」第 3 条）。
+  存量 6 个 USER 行（user_wang / maizijian86 / maizijian866 / testuser / e2edev01 / id 11）
+  一个都不改，继续当"两者都能"：maizijian86 既是 9 张单的发布者又是别的单的接单人，
+  e2edev01 在库里正是那 9 张单的接单人 —— 真按现状映射成任一种都会丢功能。
+
+1. 发布者侧的「待审核」是新建页面，还是复用 /pending 路由按身份切口径？
+   建议复用同一个路由/组件，按身份切查询参数与文案 —— 免得两份几乎一样的列表页各自漂移。
+
+3. 项目管理 / 知识库 两个菜单归谁？
+   建议：项目管理 → 发布者侧（ProjectController.java:38-48 的 creator_id 就是发布者），
+   知识库 → 双方都可见。发布者要不要能接单？（建议：不能，否则"发布者"这身份没有实际约束）
+
+====================================================================
+五、本次改动的风险清单
+====================================================================
+· HANDLER 坏数据的爆炸半径是**整页接口**，不只是单个用户登录 —— 所以批次 0 必须走在最前。
+· 上一版的化石接口（/v1/users/handlers、/handlers/available、user_skill、recommended_handler_id）
+  现在处于"半死不活"状态：没有调用方，但也没删。拆角色前后都要明确它们的归宿 ——
+  复活（正好是派单/AI 匹配要用的字段）还是删掉，别继续挂着。**不要**在批次 2 里顺手删，
+  等用户决定；它们不是这次拆分的前置条件。
+· 前端 5 处硬编码角色判断，任一漏改都静默降级（显示英文/灰色 tag），没有报错提示，需要人工逐页看。
+· 菜单分叉容易把 ADMIN 关在门外：admin 必须继续能看到全部菜单（ADMIN 先不管 = 保持现状）。
+· 工作区里已有在途改动（ai-service / api-gateway / common / PRD / 双token 相关），
+  提交时只 add 本次任务涉及的文件，别整文件 add（用户的既有要求）。
+· 后端要重启才能验证：mvn 用 JDK 17（JAVA_HOME=/c/Program Files/Java/jdk-17），
+  JDK 24 下 Lombok 会静默失效、报的是假错误。
+
+====================================================================
+六、起手动作（明天的第一条命令）
+====================================================================
+先按老路径把三个服务拉起来（java -jar */target/*.jar，仓库根目录），Vite 若没在跑就 npm run dev。
+本次改动会碰 user-service（Role/注册/UserManage 接口），所以第一个批次也要 mvn package 后重启。

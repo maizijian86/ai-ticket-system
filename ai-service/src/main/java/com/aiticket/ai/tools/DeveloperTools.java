@@ -5,19 +5,23 @@ import dev.langchain4j.data.document.Document;
 import dev.langchain4j.data.segment.TextSegment;
 import dev.langchain4j.store.embedding.EmbeddingStore;
 import dev.langchain4j.store.embedding.EmbeddingStoreIngestor;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 /**
  * 开发者工具类 - 提供给AI调用的工具方法
  */
-@Slf4j
 @Component
-@RequiredArgsConstructor
 public class DeveloperTools {
 
+    private static final Logger log = LoggerFactory.getLogger(DeveloperTools.class);
+
     private final EmbeddingStore<TextSegment> embeddingStore;
+
+    public DeveloperTools(EmbeddingStore<TextSegment> embeddingStore) {
+        this.embeddingStore = embeddingStore;
+    }
 
     /**
      * 保存PRD文档到向量数据库
