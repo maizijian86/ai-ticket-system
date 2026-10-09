@@ -73,7 +73,12 @@ import type { MembershipOrderDTO } from '@/types'
 const route = useRoute()
 const router = useRouter()
 
-/** 轮询间隔与上限：2 秒 × 30 次 = 1 分钟。再长下去用户只会盯着一个转圈。 */
+/**
+ * 轮询间隔与上限：2 秒 × 30 次 = 1 分钟。再长下去用户只会盯着一个转圈。
+ *
+ * 注意这个一分钟**不是**"过了一分钟就不查了"——见 onVisible：切回本页会重新开始一轮。
+ * 上限管的只是"用户一直盯着这一页时，别无止境地转圈"。
+ */
 const POLL_INTERVAL_MS = 2000
 const MAX_POLLS = 30
 
@@ -204,14 +209,36 @@ function formatDateTime(value?: string | null) {
   return value ? new Date(value).toLocaleString('zh-CN') : '-'
 }
 
+/**
+ * 切回本页时立刻核对一次，并且**重新开始一轮轮询**。
+ *
+ * 为什么必须有这个（不是锦上添花）：付款是在**另一个标签页**（支付宝收银台）里完成的，
+ * 用户付完切回来时，本页那一分钟多半已经耗尽、停在"等待支付确认"上。
+ * 而页面自己不会醒 —— 用户看到的是一张确定失败的画面，于是**再付一笔**。
+ * 实测（沙箱）：一笔 30 元的支付从点「下一步」到收银台跳走要 10~15 秒，
+ * 加上收银台本身间歇性报错要重试，整个付完往往超过一分钟，这条路径是常态不是边角。
+ */
+function onVisible() {
+  if (document.visibilityState !== 'visible' || !outTradeNo.value) return
+  // 已经是终态就没什么可核对的，别每次切标签都打一次接口
+  if (order.value && order.value.status !== 'PENDING') return
+  exhausted.value = false
+  fetchOrder()
+  startPolling()
+}
+
 onMounted(() => {
   if (!outTradeNo.value) return
   fetchOrder()
   startPolling()
+  document.addEventListener('visibilitychange', onVisible)
 })
 
 // 离开页面必须停掉，否则回到别的页面还在后台打接口（并且它还会改一个已经卸载的 ref）
-onBeforeUnmount(stopPolling)
+onBeforeUnmount(() => {
+  stopPolling()
+  document.removeEventListener('visibilitychange', onVisible)
+})
 </script>
 
 <style scoped>

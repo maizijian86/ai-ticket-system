@@ -72,7 +72,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onBeforeUnmount, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Medal, Check } from '@element-plus/icons-vue'
@@ -88,8 +88,13 @@ const loading = ref(false)
 /** 正在下单的套餐 code；同时兼作"全局只允许一个下单请求"的锁 */
 const creating = ref<string | null>(null)
 
-async function loadAll() {
-  loading.value = true
+/**
+ * @param silent 静默刷新：不动 loading。切回本页时用 —— 卡片闪一下骨架屏比不刷新更糟
+ */
+async function loadAll(silent = false) {
+  if (!silent) {
+    loading.value = true
+  }
   try {
     const [planList, mine] = await Promise.all([membershipApi.plans(), membershipApi.me()])
     plans.value = planList
@@ -98,6 +103,18 @@ async function loadAll() {
     ElMessage.error(e?.message || '加载会员信息失败')
   } finally {
     loading.value = false
+  }
+}
+
+/**
+ * 从收银台切回来时静默刷新一次。
+ *
+ * 付款在**另一个标签页**里完成（见 goPay：window.open 开收银台），本页自己不刷新的话
+ * 还停在"未开通 / 剩余 5 次"，看着就像白付了 —— 实测中这直接导致用户重复下单。
+ */
+function onVisible() {
+  if (document.visibilityState === 'visible') {
+    loadAll(true)
   }
 }
 
@@ -144,7 +161,12 @@ function formatDate(value?: string | null) {
   return value ? new Date(value).toLocaleString('zh-CN') : '-'
 }
 
-onMounted(loadAll)
+onMounted(() => {
+  loadAll()
+  document.addEventListener('visibilitychange', onVisible)
+})
+
+onBeforeUnmount(() => document.removeEventListener('visibilitychange', onVisible))
 </script>
 
 <style scoped>
