@@ -31,7 +31,11 @@ spring:
             # ProjectController 与 TicketController 同在 ticket-service，
             # 但此前只转发了 /api/v1/tickets/**，/api/v1/projects/** 无人转发，
             # 网关直接回 404 —— 前端整个项目管理模块都因此不可用。
-            - Path=/api/v1/tickets,/api/v1/tickets/**,/api/v1/projects,/api/v1/projects/**
+            #
+            # membership 是会员/会员订单（与 UserMembership、额度批次同在 ticket-service，
+            # 因为"插一行会员 + 发 30 次次数"必须是同一个本地事务）。回调也走这条路由：
+            # natapp 只配一条隧道、回调与其他接口同一个入口，排查时只有一条路径。
+            - Path=/api/v1/tickets,/api/v1/tickets/**,/api/v1/projects,/api/v1/projects/**,/api/v1/membership,/api/v1/membership/**
         - id: ai-service
           uri: http://127.0.0.1:8083
           predicates:

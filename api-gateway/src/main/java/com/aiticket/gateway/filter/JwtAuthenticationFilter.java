@@ -38,10 +38,17 @@ public class JwtAuthenticationFilter implements GlobalFilter, Ordered {
 
     // logout 不在此列：它需要知道"要登出谁"，只能从已校验的 token 里取 userId。
     // 放在白名单里的话接口就必须自己接收 userId 参数，等于谁都能登出任何人。
+    //
+    // membership/callback 在列是因为那是**支付宝服务器**来 POST 的异步通知，它没有
+    // Authorization 头。漏了这一条的后果值得单独记住：网关回 401 → 支付宝认为通知失败
+    // → 重试几次后放弃 → 用户付了钱没到账，而日志里只有一条莫名其妙的 401
+    // （连请求体都没有，因为被过滤器挡在最前面）。白名单是 startsWith 前缀匹配，
+    // 写到 /callback 这一级就够，/callback/alipay 自动放行。
     private static final String[] WHITE_LIST = {
             "/api/v1/auth/register",
             "/api/v1/auth/login",
             "/api/v1/auth/refresh",
+            "/api/v1/membership/callback",
             "/health",
             "/actuator/health"
     };
