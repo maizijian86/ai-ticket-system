@@ -1,19 +1,43 @@
-会员额度 plan（2026-10-07 策划稿）
+会员额度 plan（2026-10-09 施工稿，明天开工）
 分支：chore/track-frontend
+支付渠道：支付宝沙箱 PC 网页支付，异步回调经 natapp 内网穿透
 
 ====================================================================
 零、这份文档的定位
 ====================================================================
-本次**只出方案，不写任何代码**。表已经建好了（user_membership +
-ai_credit_batch，见 db/schema.sql 末尾），但没有任何会员接口、页面、支付。
+上一版（10-07）是策划稿，开篇写着「只出方案，不写任何代码」。今天转成**施工稿**：
+明天照第五节以后的清单直接敲，不用再做决策。
 
-换句话说：现在的系统里"会员"是一张空表，用户拿到的只有注册赠送的 5 次。
-这份文档是下次开工时的施工图，不是已完成的功能清单。
+已经建好、明天不用再改结构的部分：
+· 表：ai_credit_batch（db/schema.sql:409-424）、user_membership（db/schema.sql:451-464）
+· 实体：ticket-service/.../entity/AiCreditBatch.java、UserMembership.java
+· 发放通道：AiQuotaService.grant(...)（AiQuotaService.java:99-109，INSERT IGNORE 幂等已实现）
+
+仍然不存在、明天要新建的：
+· **membership_order 表**（全仓只在本文件里出现过这个名字，schema.sql / migration.sql / 任何
+  Java 文件都没有）；
+· 会员与订单的 Repository / Service / Controller —— 一个都没有。UserMembership 实体是**孤立的**，
+  没有配套的 repository，也没有 MembershipRepository / MembershipService；
+· 网关路由 `/api/v1/membership/**`（api-gateway/.../application.yml:23-38 里没有这条）；
+· 任何支付依赖（6 个 pom 里 `alipay|fastjson` 零命中，全仓源码 `支付宝|alipay` 零命中）；
+· 前端会员页与支付流程。「会员」目前只是文案和占位常量，唯一的交互是
+  TicketDetail.vue:650-652 弹的那句「会员功能即将上线，敬请期待」。
+· **前端也没有任何个人主页 / 订单列表**（`views/` 下只有 ticket / project / knowledge /
+  admin / auth(空) / NotFound，`grep 订单|order|profile|个人|account` 在前端源码里
+  除了 CSS 的 `border` / `sortOrder` 零命中）。「我的订单」是本次从零新建的一页，
+  不是"接一个入口"—— 清单见 5.6 / 5.7。
+
+**本次不做退款。** 会员是虚拟权益，一开通次数就发出去了，没有「退钱」这个动作。
+参考实现 D:\webdazye\支付宝沙箱支付 里的 `AlipayTradeRefund.java` 与 `RefundRequest.java`
+整块不抄，代码里**一行 AlipayTradeRefund 相关的东西都不写**（包括 SDK 的 import）。
+真出现纠纷需要收次数，走管理员手工调整（本次也不做，见一.11），留痕可查。
 
 
 ====================================================================
 一、已定的事（用户拍板，不要再问）
 ====================================================================
+（1~5 是 10-07 定的，6~11 是 10-09 定的）
+
 1. 会员以**月**为单位：购买日起 30 天内 30 次。
 2. 到期后**没用完的次数跟着作废**，不能攒、不能顺延到下一期。
 3. 额度是**账户级池子**，不是按工单分配。一张工单上的三个 AI 功能各消耗 1 次，
@@ -22,19 +46,62 @@ ai_credit_batch，见 db/schema.sql 末尾），但没有任何会员接口、�
    理由很实际 —— 永久批次不会过期，会员批次会。先花会过期的，用户损失最小。
 5. 这次的额度体系（ai_credit_batch）就是为会员准备的，会员不需要另立一套计数。
 
+6. **支付渠道=支付宝沙箱 PC 网页支付**（AlipayTradePagePay），异步通知经 natapp 暴露到公网。
+   四个后端服务都只监听 127.0.0.1（server.address: 127.0.0.1），natapp 在本机跑，
+   转发到 127.0.0.1:8080 即可，**不需要改监听地址**。
+
+7. **不做退款**，理由见零节末。会员到期后想继续用，就再买一期。
+
+8. **代码落 ticket-service**。理由：UserMembership 实体、AiQuotaService、批次表、CreditSource
+   枚举全在这一个模块里，「插一行会员 + 发 30 次次数」是**同一个本地 @Transactional**，
+   结构上不可能出现「是会员但没次数」或「有次数但不是会员」。
+   放 user-service 会把这两件事拆进两个事务（还得引 Feign 跨服务调用），
+   换来的是模块归属上的一点整洁，代价是一个必然存在的资损口子。不划算。
+
+9. 价格 **¥30 / 30 天 / 30 次**，plan_code = `MONTHLY_30`。
+   价格写在**后端配置**里，前端从 `GET /membership/plans` 取，不写死在前端 ——
+   改价不该要重新发版，套餐文案也不该散落在两个仓库层面上。
+
+10. **异步回调走网关 8080**，不直连 ticket-service。代价是必须改两处配置（见 5.5），
+    好处是 natapp 只配一条隧道、回调与其他接口同一个入口，排查时只有一条路径。
+
+11. **管理员手工发次数接口（POST /api/v1/admin/credits）本次不做**。
+    表结构已预留 `source=ADMIN`（enums/CreditSource.java:14-21），什么时候做都行。
+
+12. **不做购物车。** 会员是订阅型商品，一次一单一付，"车"里永远只有一件东西。
+    购物车真正的成本不在加车/改数量，而在**多商品合并支付**：合并成一笔就得分摊金额、
+    拆单发放，将来要退款还得按比例拆 —— 而退款本期明确不做（见零节末）。
+    为一个单品做购物车，是把将来的复杂度提前买进来。
+    也不做"期数选择器"（买 3 期 90 元那种），用户没有这个需求，且它会把
+    "一笔支付 ↔ 一个会员周期"的对应关系变成一对多。
+
+13. **未支付订单：只在库里留记录，不提供「继续支付」。**
+    用户在「我的订单」里能看到这条（状态「待支付」），但没有按钮把它捡回来接着付；
+    想付就重新下单。这个决定换来的是「**一个 out_trade_no 只对应一次支付尝试、
+    作废后不重用**」这条干净语义（理由见第三节末），代价只是列表里多几条「已关闭」。
+
 
 ====================================================================
-二、两张表的分工（已经建好，施工时不用再改结构）
+二、三张表的分工（前两张已建好，施工时不用再改结构）
 ====================================================================
-· user_membership —— **会员身份**：这个账号现在是不是会员、哪一档、什么时候到期、
+· `user_membership` —— **会员身份**：这个账号现在是不是会员、哪一档、什么时候到期、
   下期续不续。一行 = 一个会员周期。
-· ai_credit_batch —— **次数**：一行 = 一次发放。会员开通用
+· `ai_credit_batch` —— **次数**：一行 = 一次发放。会员开通用
   source=MEMBERSHIP、expires_at=发放日+30天 插一行 30 次。
+· `membership_order` —— **订单**（本次新增，见 5.1）：回答「这一期是谁付的钱、付了多少、
+  在支付宝那边是哪一笔」。
 
-为什么切成两张表（而不是"用户表上加个 membership_expires_at + credits 字段"）：
+为什么订单表是必须的，不是可选的：
+· 发放幂等键要写成 `MEMBERSHIP:{orderId}`，**orderId 必须有个稳定来源**；
+· 支付回调只能带着 `out_trade_no` 回来，必须能反查到订单才谈得上「这笔钱是哪一单的」；
+· 「同一个回调重复到达」与「用户付了两次」在金额上完全不同（后者是两笔订单、两期会员），
+  只有订单表能把这两种情况分开。
+
+为什么会员身份和次数切成两张表（而不是"用户表上加个 membership_expires_at + credits 字段"）：
 
   a) 「到期没用完的次数作废」变成**零逻辑**。次数挂在批次的 expires_at 上，
-     查询时惰性过滤掉过期批次即可（AiCreditBatchRepository.findUsable 已经这么做了）。
+     查询时惰性过滤掉过期批次即可（AiCreditBatchRepository.findUsable 已经这么做了，
+     见 repository/AiCreditBatchRepository.java:30-37）。
      不需要定时任务去核销，也不需要"过期时记得扣掉余额"这种一旦漏跑就出错的逻辑。
 
   b) 续费天然叠加。第二个月再插一行批次，不用去"改"上一行的余额 ——
@@ -53,6 +120,9 @@ ai_credit_batch，见 db/schema.sql 末尾），但没有任何会员接口、�
 ====================================================================
 三、状态流转
 ====================================================================
+
+--- 会员侧 ---
+
 · 开通：无有效会员 → 插 user_membership(status=ACTIVE, started_at=now,
   expires_at=now+30d, credits_granted=30)
   + 插 ai_credit_batch(source=MEMBERSHIP, total=30, remaining=30,
@@ -63,8 +133,8 @@ ai_credit_batch，见 db/schema.sql 末尾），但没有任何会员接口、�
   旧行保持 ACTIVE 到自然到期，新行的 started_at 取旧行的 expires_at
   （而不是 now）—— 这样"提前续费"不会白扔掉剩余天数，也不会出现两段会员期重叠。
   批次的 expires_at 同样跟着顺延。
-  注：如果哪天要做"续费立即生效、剩余天数折算"，改这里的起点即可，
-  表结构不用动。
+  注：如果哪天要做"续费立即生效、剩余天数折算"，改这里的起点即可，表结构不用动。
+  实现见 5.3，起点写成 `max(now, 现有有效会员的 expires_at)`。
 
 · 到期：不做任何写操作。判断"是不是会员"一律用
   `status='ACTIVE' AND expires_at > NOW()`。靠惰性过滤，不依赖定时任务 ——
@@ -74,100 +144,972 @@ ai_credit_batch，见 db/schema.sql 末尾），但没有任何会员接口、�
 
 · 退订/取消：status=CANCELED。已发放的批次**不退**（次数已经发出去了，
   收回来会让"买完就用、用完就退"变成刷额度）。到 expires_at 自然失效。
+  本期前端**不提供这个按钮**（没有自动续费，取消是给"不想再看到提醒"用的）。
+
+--- 订单侧（本次新增）---
+
+  PENDING → PAID     到账成功（靠异步回调，或结果页的主动查单兜底）
+  PENDING → CLOSED   超时未支付、或支付宝那边交易已关闭
+  PAID 是**终态**，没有 REFUNDED —— 本次不做退款。
+
+  · CLOSED 不引定时任务。全仓没有 @EnableScheduling，关闭动作挂在**读路径**上：
+    结果页轮询 `GET /membership/orders/{outTradeNo}` 时，若该单 PENDING 且创建超过
+    15 分钟，主动查一次支付宝；查不到交易 / 交易已关闭 → 标 CLOSED。
+    与额度过期是同一套思路（惰性、读写路径顺手结算），不新增需要"保证跑过"的东西。
+
+  · 连点两下「立即开通」要有闸：同一用户存在 **10 分钟内创建、且仍 PENDING** 的订单时，
+    直接复用那一单返回（不新建）。理由：连点会建两单，用户可能把两单都付了 ——
+    虽然多付的钱换来两期会员（不亏），但界面上会出现两个待支付订单，
+    解释成本远高于加这一行判断。
+    **这个窗口刻意压到 10 分钟**，短于支付宝那边的交易超时（默认远长于 10 分钟），
+    所以复用时那笔交易一定还活着，重新生成 payUrl 不会撞到"交易已关闭、不能重开"。
+    窗口和"不提供继续支付"（一.13）是配套的：10 分钟内算手滑，复用；
+    10 分钟之外算放弃，那单作废、重新下单。
+    注意这**不是**「继续支付」按钮 —— 用户看不到旧单，是在会员页重新点的开通。
+
+  · **一个 out_trade_no 只对应一次支付尝试，作废后不重用。**
+    单号生成规则见 5.1，订单一旦 CLOSED 就作废，用户重新下单会拿到**新单号、新订单行**。
+    这样「一单一号一号一单」永远成立：唯一键干净、审计干净、也不需要给订单存
+    out_trade_no 的历史（否则"同一订单换过单号"会让回调反查变成一对多）。
+    代价是列表里会有多条「已关闭」记录 —— 这是有意的，见七.13。
+    还有一个不能省的推论：既然我们可能**先**把单标成 CLOSED、支付宝那边**后**才收到钱
+    （用户从支付宝的交易列表里把旧单付了），fulfill 的守卫就不能按状态把 CLOSED 单挡掉 ——
+    具体见 5.3 第 2 步与七.14，这是本次最容易写错的正确性细节。
 
 
 ====================================================================
 四、"30 天 30 次"发放的幂等
 ====================================================================
-biz_key = `MEMBERSHIP:{orderId}`，ai_credit_batch.biz_key 上有唯一键，
-发放走 INSERT IGNORE（AiCreditBatchRepository.insertIgnore 已实现）。
+biz_key = `MEMBERSHIP:{orderId}`，ai_credit_batch.biz_key 上有唯一键
+（db/schema.sql:422 `UNIQUE KEY uk_batch_biz_key`），发放走 INSERT IGNORE
+（AiCreditBatchRepository.insertIgnore:72-85 已实现）。
 
 这条幂等键挡的是最常见的资损场景：
 · 用户连点两次"立即开通" → 两个请求同时到达 → 只发一次；
-· 支付回调重试（微信/支付宝都会重试，且可能重试多次）→ 只发一次；
+· 支付回调重试（支付宝会重试，且可能重试多次）→ 只发一次；
 · 多实例部署下两个节点同时处理同一个回调 → 只发一次。
 
 **不要**改成"先查有没有发过、没有再插"：那在并发下挡不住（两个请求都查到
 "没发过"），而且为此要把外层事务标记 rollback-only，反而更脆。
 由数据库唯一键裁决是这个系统的既定做法，和 ai_usage 的 uk_usage_slot 一致。
 
+但要知道这条键**只管次数，不管会员行**：user_membership 没有唯一键
+（只有普通索引 idx_membership_user）。所以「重复回调会不会插出两行会员」这件事
+得靠 5.3 的订单行锁来挡 —— 见第七节 1。
+
 
 ====================================================================
-五、需要新增的接口清单（下次施工时照着做）
+五、明天要新增的东西
 ====================================================================
-1. GET  /api/v1/membership/me
-   返回 `{ isMember, planCode, startedAt, expiresAt, creditsGranted, remaining, nextExpireAt }`。
-   未登录 401。额度信息复用 AiQuotaService.getBalance，不要另写一套求和。
 
-2. GET  /api/v1/membership/plans
-   套餐列表（本期只有 MONTHLY_30 一档，也做成列表，方便以后加档位）。
-   前端据此渲染价格与权益文案，价格不写死在前端。
+------------ 5.1  membership_order 表 ------------
 
-3. POST /api/v1/membership/orders
-   创建订单 → 返回支付参数。**订单表需要新增**（本次没建）：
-   membership_order(id, user_id, plan_code, amount, status, pay_channel,
-   out_trade_no, paid_at, created_at, ...)，status ∈ PENDING/PAID/CLOSED/REFUNDED。
-   这个表是必须的，不是可选的 —— 幂等键需要 orderId 有稳定的来源，
-   而"支付回调"必须能通过 out_trade_no 反查到订单。
+```sql
+CREATE TABLE IF NOT EXISTS membership_order (
+    id           BIGINT        AUTO_INCREMENT PRIMARY KEY,
+    user_id      BIGINT        NOT NULL COMMENT '下单账号',
+    plan_code    VARCHAR(32)   NOT NULL COMMENT '下单时的套餐，如 MONTHLY_30',
+    plan_credits INT           NOT NULL COMMENT '权益快照: 该套餐发放次数',
+    plan_days    INT           NOT NULL COMMENT '权益快照: 该套餐有效天数',
+    amount       DECIMAL(10,2) NOT NULL COMMENT '下单金额(元)',
+    pay_channel  VARCHAR(20)   NOT NULL COMMENT 'ALIPAY_SANDBOX',
+    out_trade_no VARCHAR(64)   NOT NULL COMMENT '商户订单号, 给支付宝的那个',
+    trade_no     VARCHAR(64)   DEFAULT NULL COMMENT '支付宝交易号, 回调里带回来',
+    status       VARCHAR(16)   NOT NULL COMMENT 'PENDING / PAID / CLOSED',
+    paid_at      DATETIME      DEFAULT NULL,
+    created_at   DATETIME      DEFAULT CURRENT_TIMESTAMP,
+    updated_at   DATETIME      DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at   DATETIME      DEFAULT NULL,
+    UNIQUE KEY uk_order_out_trade_no (out_trade_no),
+    KEY idx_order_user (user_id, status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='会员订单';
+```
 
-4. POST /api/v1/membership/callback/{channel}
-   支付回调。**不鉴权**（是渠道来调的），靠签名验真。
-   处理顺序：验签 → 查订单 → 幂等发次数 → 更新会员 → 返回渠道要求的成功应答。
-   「幂等发次数」那一步依赖 biz_key，重复回调是安全的。
+三个设计点，都是有理由的：
 
-5. 管理员调整额度（可选）：POST /api/v1/admin/credits
-   给某个账号手工发次数，走 source=ADMIN、biz_key=ADMIN:{uuid}。
-   表结构已经预留，做不做取决于运营需求。
+  a) **plan_credits / plan_days 是权益快照**，不是冗余。到账发放时要用"下单时"的次数和天数，
+     而不是"到账时"的套餐配置。否则以后把套餐从 30 次改成 20 次，所有历史未支付订单
+     会按新配置发放，用户看到的商品页与到手的东西不一致。价格同理已经存在 amount 里。
+
+  b) **out_trade_no 单独一列 + 唯一键**，不用自增 id 直接当商户订单号。
+     支付宝要求 out_trade_no 唯一且只含字母数字（≤64 位），id 是纯数字也能用，
+     但一旦以后换渠道（或同时挂两个渠道），"订单号里看不出是什么单"会让对账变成猜谜。
+     生成规则：`MEM` + `yyyyMMddHHmmss` + 6 位随机数，插库时唯一键兜底（撞了就重试一次）。
+
+  c) **status 存字符串（PENDING/PAID/CLOSED）**，与 user_membership.status、
+     ai_credit_batch.source 一致，都用 @Enumerated(EnumType.STRING)。
+     全仓没有一处存枚举序号，别在这里开个头。
+
+DDL 落**三个地方**（本仓库的既定做法，schema.sql 末尾那段注释里写明了原因）：
+  1. `db/schema.sql` 末尾（接在 user_membership 后面，同一段横幅下）；
+  2. `db/migration.sql`（照该文件既有的 `CREATE TABLE IF NOT EXISTS` 幂等写法，
+     它是给"库已存在、想手工先建好"或"比对结构"用的）；
+  3. JPA 实体 `MembershipOrder.java`（见 5.7）—— ticket-service 是 `ddl-auto: update`，
+     启动会自动建表，但**唯一键必须在 `@Table(uniqueConstraints=...)` 里声明**，
+     否则 Hibernate 建出来的表没有 uk_order_out_trade_no，幂等就少了最后一道闸
+     （参考 AiCreditBatch.java:31-37 的写法）。
+
+金额字段 Java 侧用 `BigDecimal`（`@Column(precision = 10, scale = 2)`），
+**不用 double / float**；和支付宝交互时金额也是字符串，统一
+`new BigDecimal("30.00").toPlainString()`。
+（30 元是整数，但**一定要写成 `"30.00"` 两位小数**给支付宝 —— 见 5.4 金额校验那一条。）
+
+------------ 5.2  接口清单 ------------
+
+| 接口 | 鉴权 | 用途 |
+|---|---|---|
+| `GET  /api/v1/membership/plans` | 需登录 | 套餐列表，价格与权益文案的唯一来源 |
+| `GET  /api/v1/membership/me` | 需登录 | 我的会员状态 + 账户余额 |
+| `POST /api/v1/membership/orders` | 需登录 | 创建订单，返回支付宝收银台链接 |
+| `GET  /api/v1/membership/orders/{outTradeNo}` | 需登录 | 订单状态（结果页轮询 + 主动查单兜底） |
+| `GET  /api/v1/membership/orders` | 需登录 | **我的订单**（分页），个人主页用 |
+| `POST /api/v1/membership/callback/alipay` | **不鉴权** | 支付宝异步通知 |
+
+身份从网关注入的 `X-User-Id` 头取，与全站一致
+（TicketController.java:45 的 `@RequestHeader(value = "X-User-Id", required = false) Long userId`），
+取不到就 401，**不要**自己解析 Authorization 头。
+
+**① `GET /api/v1/membership/plans`**
+```json
+{"code":200,"message":"success","data":[
+  {"planCode":"MONTHLY_30","name":"会员月卡","price":30.00,"credits":30,"days":30,
+   "desc":"30 天内 30 次 AI 辅助开发额度"}
+]}
+```
+做成列表（不是单个对象），以后加「年卡」只改后端配置，前端不用动。
+返回 `Result<List<MembershipPlanDTO>>`。
+
+**② `GET /api/v1/membership/me`**
+```json
+{"data":{"isMember":true,"planCode":"MONTHLY_30",
+ "startedAt":"2026-10-09T10:00:00","expiresAt":"2026-11-08T10:00:00",
+ "creditsGranted":30,"remaining":35,"nextExpireAt":"2026-11-08T10:00:00"}}
+```
+· `remaining` / `nextExpireAt` **复用 `AiQuotaService.getBalance(userId)`**
+  （AiQuotaService.java:117-132，返回 `record Balance(int remaining, LocalDateTime nextExpireAt)`），
+  不要另写一套 SUM —— 那一定会写成 `SUM(remaining_amount)` 直查全表，
+  把过期批次也算进去（第七节 2 点名的坑）。
+· 非会员时：`isMember=false`、`planCode/startedAt/expiresAt/creditsGranted` 全 null，
+  但 `remaining` **照常返回真实余额**（注册赠送的 5 次）—— 前端要靠它显示
+  「你还剩 5 次」而不是「你还剩 0 次」。
+· `isMember` 的判定必须是实时条件 `status='ACTIVE' AND expires_at > NOW()`，
+  **不许**读缓存字段（第七节 5）。
+
+**③ `POST /api/v1/membership/orders`**
+入参 `{"planCode":"MONTHLY_30"}`（`@Valid`，未知 planCode → 400）。
+出参：
+```json
+{"data":{"orderId":12,"outTradeNo":"MEM20261009103000123456","amount":30.00,
+ "payUrl":"https://openapi-sandbox.dl.alipaydev.com/gateway.do?...&sign=..."}}
+```
+· 未知套餐 → `400`；未登录 → `401`（由 X-User-Id 缺失判定）。
+· 复用未支付订单的逻辑见第三节末（10 分钟内的 PENDING 单直接返回，不新建）。
+· **payUrl 由后端生成**，前端只管打开。前端不要去拼支付宝参数 —— 签名在前端做等于把私钥交出去。
+
+**④ `GET /api/v1/membership/orders/{outTradeNo}`**
+```json
+{"data":{"orderId":12,"outTradeNo":"...","planCode":"MONTHLY_30",
+ "planCredits":30,"planDays":30,"amount":30.00,"status":"PAID",
+ "paidAt":"2026-10-09T10:12:33","expiresAt":"2026-11-08T10:12:33"}}
+```
+· **只能查自己的订单**：`order.userId != 当前 userId` → `403`（不是 404：
+  这是别人的资源但存在；与全仓 404 → 401 → 403 的错误码顺序一致，见
+  TicketService.requireParticipantTicket 的注释）。
+· 侧效应（第三节 + 5.3 第三个要点）：PENDING 且超过 15 分钟 → 主动查一次支付宝，
+  按查询结果走三条路（成功 → fulfil / `TRADE_CLOSED` → 标 CLOSED / 查不到 → 标 CLOSED）。
+  **判据是支付宝的返回，不是我们的钟**。
+  GET 带写侧效应不优雅，换来的是「不需要定时任务、也不需要前端多调一个 POST」。
+  更干净的做法是另开 `POST /orders/{no}/sync`，本期不拆，记在这里。
+· `expiresAt` 是**开通后的会员到期日**，PAID 时才有值；PENDING 时是 null。
+
+**⑤ `GET /api/v1/membership/orders`（我的订单，个人主页用）**
+入参：`page`（默认 1）、`pageSize`（默认 10）—— 与全站一致
+（TicketController.java:93-94、UserController.java:31-32 的 `@RequestParam(defaultValue=...)`）。
+出参：`Result<PageResult<MembershipOrderDTO>>`，按 `created_at DESC`，**不分 PENDING/CLOSED**：
+```json
+{"data":{"data":[
+  {"orderId":12,"outTradeNo":"MEM20261009103000123456","planCode":"MONTHLY_30",
+   "planCredits":30,"planDays":30,"amount":30.00,"status":"PAID",
+   "paidAt":"2026-10-09T10:12:33","expiresAt":"2026-11-08T10:12:33","createdAt":"2026-10-09T10:10:02"},
+  {"orderId":11,"outTradeNo":"MEM20261009095500119876","planCode":"MONTHLY_30",
+   "planCredits":30,"planDays":30,"amount":30.00,"status":"CLOSED",
+   "paidAt":null,"expiresAt":null,"createdAt":"2026-10-09T09:55:41"}
+],"total":2,"page":1,"pageSize":10}}
+```
+· **只返回自己的单**：查询条件 `user_id = 当前用户` 由后端强制，
+  **不接受前端传 userId** —— 那等于让前端决定能看谁的订单。
+· `PageResult.of(total, page, pageSize, data)` 现成（common/.../dto/PageResult.java:12-19），
+  分页参数用 `PageRequest.of(page - 1, pageSize)`（对外 page 从 1 开始，
+  与 user-service/.../UserService.java:173-187 一致）。
+· **数据只来自我们库**，每一行都不去查支付宝（理由见 5.3.1 第三条原则）：
+  这个接口只是读库 + 分页，无侧效应、无外部调用。
+  注意它**不带**主动查单兜底 —— 兜底只在结果页那条单笔查询上（④），
+  列表页看到「待支付」但支付宝那边其实已经付了的极端情况，用户可以点进结果页看。
+  本期接受这个粗糙，记在这里。
+· `expiresAt` 只在 PAID 的行上有值；CLOSED/PENDING 为 null，前端不要拿它算天数。
+
+**⑥ `POST /api/v1/membership/callback/alipay`**
+· 入参：支付宝 POST 过来的 form-urlencoded 参数（out_trade_no、trade_no、trade_status、
+  total_amount、app_id、sign、sign_type …），不写 DTO，直接用
+  `HttpServletRequest.getParameterMap()` 取（支付宝的参数名带下划线且不固定，
+  用 DTO 接容易漏字段，漏了字段验签必失败）。
+· 出参：**纯文本 `success`**，不能包 `Result`。
+  AlipayController 那一套 `Result.success(...)` 在这里是错的：支付宝只认
+  body 里出现 `success`，返回 JSON 会让它认为通知失败并持续重试（最多 8 次）。
+· **不鉴权**：网关白名单放行（见 5.5），网关照例删掉伪造的 X-User-Id 头，
+  所以这里拿不到、也不需要用户身份 —— 订单是靠 out_trade_no 找出来的。
+
+------------ 5.3  开通/续费的落库细节 ------------
+
+**只有一个入口** `fulfill(MembershipOrder order, String tradeNo)`，
+异步回调和主动查单都调它：
+
+```
+1. 按 out_trade_no 加悲观锁读订单（SELECT ... FOR UPDATE）
+2. status 已是 PAID → 直接返回。**注意这里只能挡 PAID，不能挡 CLOSED**（见下）
+3. base = max(now, 该用户现存有效会员的 expires_at)            // 续费不丢天数
+4. expiresAt = base + order.planDays 天
+5. 插 user_membership(status=ACTIVE, started_at=base, expires_at=expiresAt,
+                     credits_granted=order.planCredits)
+6. aiQuotaService.grant(order.userId, CreditSource.MEMBERSHIP, order.planCredits,
+                        expiresAt, "MEMBERSHIP:" + order.id, "会员开通")
+7. order.status=PAID, tradeNo, paidAt=now
+```
+2~7 在**同一个 @Transactional** 里（grant 是跨 bean 调用，默认 REQUIRED，
+会并入当前事务，不会另开一个）。
+
+三个必须注意的点：
+
+  · 第 1 步的**行锁才是真正的互斥闸**。第 2 步的状态判断只是快路径：
+    「回调」和「结果页主动查单」完全可能并发，两边都读到 PENDING。
+    锁住订单行之后，后到的那个会等锁释放、再看到 PAID 并退出。
+    biz_key 唯一键是最后一道防线（就算前两道都漏了，次数也只会发一次），
+    但它**管不住 user_membership**（那张表没有唯一键），所以不能只靠它。
+
+  · 第 3 步读现存会员行时也加悲观写锁（按 user_id），否则「用户同时买两期」
+    的两个请求会各自算出同一个 base，插出两段完全重叠的会员期 ——
+    用户付了两次钱，只拿到 30 天。锁写法照抄仓库里已有的
+    `@Lock(PESSIMISTIC_WRITE)`（repository/AiCreditBatchRepository.java:46-59）。
+    这是"买两次"的正常场景（第三节 3：额度用完了会员还没到期，应该允许再买一份），
+    不是异常路径，必须挡住。
+
+  · 第 4 步的 `base` 用来算 expiresAt，**批次和会员行用同一个 expiresAt**，
+    这样「到期后没用完的次数作废」自然成立（批次一过期，findUsable 就不返回它）。
+
+  · 第 2 步**为什么不能写成 `status != PENDING → 返回`**：
+    我们会主动把超时单标成 CLOSED，而**支付宝那边的交易往往还活着**
+    （我们的判据阈值比支付宝的交易超时短得多）。用户完全可能从支付宝的交易列表里
+    把旧单付掉 —— 沙箱里少见，真实环境一点都不罕见。此时回调带着 `TRADE_SUCCESS` 到达，
+    若按状态把 CLOSED 单挡掉，这一单就**钱收了、次数不发**，而且日志里一片安静
+    （回调处理"成功"返回了 success）。
+    所以守卫是：验签通过 + 金额相符 + 单号能查到订单 → **一律照发**，
+    只有 `PAID` 提前返回。这一条同时盖住"重复回调"和"迟到的支付"两种情况，
+    幂等交给订单行锁 + biz_key（第四节）。
+
+  · **主动查单的结果才是关闭订单的依据，时间不是。** 读路径发现 PENDING 单
+    超过阈值（15 分钟）时去查一次支付宝，按查询结果分三种：
+    - 查得到且 `TRADE_SUCCESS` → 走本方法（本该如此，这是兜底的主路径）；
+    - 查得到但 `TRADE_CLOSED`（用户自己取消，或支付宝侧超时关闭）→ 标 CLOSED；
+    - **查不到这笔交易**（用户压根没提交支付，我们只生成了链接）→ 标 CLOSED。
+    15 分钟只是"什么时候值得去查一次"的触发阈值，**不是**关闭依据。
+    写成"超过 15 分钟就关"会直接制造上面那个"钱收了次数不发"的场景。
+
+------------ 5.3.1  订单与支付宝交易的界定 ------------
+
+这是最容易含混的一处，先把对应关系钉死：**我们库里的 `membership_order` 是会员开通订单
+（业务单据），支付宝那边的 `trade_no` 是资金凭据（支付流水）**。两者不是同一个东西：
+
+| | 我们库：`membership_order` | 支付宝侧：一笔交易 |
+|---|---|---|
+| 它是什么 | 会员开通订单（业务单据） | 资金凭据（支付流水） |
+| 生命周期谁说了算 | 我们，永远留着 | 支付宝，超时会关、记录会老 |
+| 关键字段 | out_trade_no / status / plan_credits / plan_days / amount | trade_no / trade_status |
+| 对应关系 | **1 单 ↔ 1 笔交易**，一单一号（不做合并支付、不做拆单 —— 因为不做购物车，一.12） | |
+
+三条原则，写代码时按这个判断：
+
+  1. **「会员有没有开通」永远只看我们库**（`membership_order.status` + `user_membership`），
+     不看支付宝。`trade_status` 只用来驱动 `PENDING → PAID` 这**一次**跃迁，
+     不参与任何业务判定 —— 不要在任何地方写"因为支付宝说 TRADE_SUCCESS 所以他是会员"。
+
+  2. **未支付订单必须在我们库里有记录**，不能"等支付成功再落库"。三条理由：
+     ① out_trade_no 要先有唯一键才谈得上下单；
+     ② 防连点的复用逻辑（第三节末）要有行可查；
+     ③ 对账要有单据。
+     而且支付宝侧未支付的交易随时可能因超时消失/被关，把订单事实寄托在它的生命周期上
+     等于没有事实。**这条是本次"未支付单只记录不给继续支付"（一.13）能成立的前提。**
+
+  3. **不做双向对账、不同步支付宝订单列表。** 本期没有"支付宝说付了、我们没收到"的
+     自动修复需求 —— 4. 的主动查单兜底已经把这种情况盖住了。
+     「我的订单」列表的数据来源**只有我们库**（见 5.2 ⑥），一列都不要从支付宝现查：
+     列表页分页查一次要打 N 次支付宝接口，慢且脆，而且查历史订单本来也不需要它。
+
+------------ 5.4  支付宝沙箱对接 ------------
+
+**依赖**（加在 `ticket-service/pom.xml`）：
+```xml
+<!-- 支付宝沙箱：PC 网页支付 + 交易查询 + 回调验签（退款不用，见零节） -->
+<dependency>
+    <groupId>com.alipay.sdk</groupId>
+    <artifactId>alipay-sdk-java</artifactId>
+    <version>4.16.2.ALL</version>
+</dependency>
+```
+· **不引 fastjson**。参考实现 PayUtil.query()（PayUtil.java:62-81）拿 `getBody()` 再手工 parse
+  JSON，是因为它只留了字符串；我们直接返回 `AlipayTradeQueryResponse` 用
+  `response.getTradeStatus()` 更省事，顺带少一个依赖。
+  （另注：本地 m2 里有 fastjson 1.2.76 和 2.0.58，但 2.x 的包名是 `com.alibaba.fastjson2`，
+  混淆了会编译不过。本次不用它，绕开。）
+· 依赖可达性**已实测**：maven central 上
+  `.../com/alipay/sdk/alipay-sdk-java/4.16.2.ALL/alipay-sdk-java-4.16.2.ALL.pom` 返回 200。
+  但**本机 m2 里只有 3.1.0**（`~/.m2/repository/com/alipay/sdk/alipay-sdk-java/3.1.0`），
+  所以明天构建必须能联网。3.1.0 没有 `AlipayConfig`、没有 `AlipaySignature.rsaCheckV1`，
+  **不要**为了离线而降级到 3.1.0。
+
+**配置**（`ticket-service/src/main/resources/application.yml` 新增一段）：
+```yaml
+alipay:
+  app-id: ${ALIPAY_APP_ID:}
+  private-key: ${ALIPAY_PRIVATE_KEY:}        # 应用私钥（PKCS8，单行，不带换行）
+  public-key: ${ALIPAY_PUBLIC_KEY:}          # 沙箱控制台里的「支付宝公钥」，不是应用公钥
+  gateway-url: https://openapi-sandbox.dl.alipaydev.com/gateway.do
+  sign-type: RSA2
+  charset: UTF-8
+  # natapp 隧道域名，每次重启可能变；改了这里要重启 ticket-service（见七.6）
+  notify-url: ${ALIPAY_NOTIFY_URL:}          # 例 http://xxxx.natappfree.cc/api/v1/membership/callback/alipay
+  return-url: ${ALIPAY_RETURN_URL:http://localhost:3000/membership/result}
+```
+· **notify-url 必须可配置**。参考实现把它硬编码在 PayUtil.java:32，而 natapp 免费隧道
+  的域名每次重启都会变 —— 写死等于回调静默丢失，且现象是"付了钱没到账、日志里什么都没有"。
+· 真值**放哪：`ticket-service/src/main/resources/application-secret.yml`** —— 这个文件
+  **仓库里已经有了**，别新建别的名字：
+  - 它被 `.gitignore` 两条规则排除（`application-secret.yml` 与 `**/application-secret.yml`，
+    注释写着「本地密钥配置，禁止提交」）；
+  - 它由 `application.yml:11-13` 的 `spring.config.import: optional:classpath:application-secret.yml`
+    自动加载（文件不存在时静默跳过）；
+  - 它的写法是**平铺的占位名**，不是嵌套结构。现在里面只有一行
+    `DEEPSEEK_API_KEY: sk-...`，而 `application.yml:60` 用 `${DEEPSEEK_API_KEY:}` 取它。
+  → 照抄这个惯例，secret 文件里加平铺键，application.yml 里写 `${...:}` 引用：
+  ```yaml
+  # application-secret.yml（gitignored）
+  ALIPAY_APP_ID: 2021xxxxxxxxxxxx
+  ALIPAY_PRIVATE_KEY: MIIEv...        # 一行到底，无换行
+  ALIPAY_PUBLIC_KEY: MIIBIjANBg...    # 沙箱控制台的「支付宝公钥」
+  ALIPAY_NOTIFY_URL: http://xxxx.natappfree.cc/api/v1/membership/callback/alipay
+  ```
+  **不要**新建 `application-local.yml`：那个文件不存在，`.gitignore` 里也没有它，
+  写进去会被 git 当成源码提交。
+· 也别学参考实现把私钥硬编码在类里（PayUtil.java:19-34）—— 沙箱私钥泄漏无所谓，
+  但别养成这个习惯。
+
+**payUrl 的两种取法**（先试甲，不行退乙，别临场想）：
+· 甲（首选）：`alipayClient.pageExecute(request, "GET")` 返回带签名的 URL 字符串，
+  前端 `window.open(payUrl)` 直接跳沙箱收银台。少一层 HTML 传递。
+· 乙（退路）：`alipayClient.pageExecute(request).getBody()` 返回一段自动提交的 form HTML
+  （参考实现走的就是这条，PayUtil.java:56），前端必须把它写进空白页并让它自己 submit：
+  ```js
+  const w = window.open('', '_blank')   // 必须在点击的同步调用栈里先占位，理由见七.7
+  w.document.write(html)                // 这里传的是 HTML，不是 URL
+  w.document.close()
+  ```
+  两条路都要在文档里留着：明天先试甲，编译不过或跳转异常就用乙。
+
+**回调验签**（`AlipaySignature`）：
+```java
+Map<String, String> params = ...;  // 从 request.getParameterMap() 取每个 key 的第一个值
+boolean ok = AlipaySignature.rsaCheckV1(params, publicKey, "UTF-8", "RSA2");
+```
+验签之外**必须再校验三件事**：
+1. `app_id` 等于自己的 appId（防止别的应用的通知打进来）；
+2. `total_amount` 与订单金额一致 —— 用 `new BigDecimal(...).compareTo(...) == 0`，
+   **不要**用 equals 或字符串比（30 元在支付宝那边回传的是 `"30.00"`，
+   我们库里存的是 `30.00`，一个 BigDecimal 一个字符串、标度还可能不同，
+   字符串比必然 false）；
+3. `out_trade_no` 能查到订单（查不到 → 记日志返回失败，让支付宝重试）。
+
+返回值的分寸（很容易搞反）：
+· 验签失败 / 订单查不到 / 金额不符 → 返回**非** success，让支付宝重试（可能是我们暂时故障）；
+· 验签通过但状态还是「未付款」（WAIT_BUYER_PAY 等）→ 返回 **success**，
+  表示"我收到了、别再重试"，这不是错误；
+· 只认 `TRADE_SUCCESS` 与 `TRADE_FINISHED`，两者都调 fulfill；
+· 处理成功 → 返回 success。
+
+**主动查单兜底**（`AlipayTradeQuery`）：
+结果页轮询 `GET /membership/orders/{outTradeNo}`，服务端在 PENDING 时主动查一次支付宝，
+`TRADE_SUCCESS` 就调**同一个 fulfill()**。这一步不是锦上添花，是必须的：
+· natapp 免费隧道域名重启后变了、配置没跟上 → 回调打到别人家去了；
+· 用户付完直接关浏览器 → 同步跳转（return_url）压根不发生；
+· 穿透掉线 / 网关重启的窗口期 → 支付宝重试几次后放弃。
+没有它就会出现「钱付了、次数没到」而且**没有任何自愈路径**，只能人工改库。
+这也解释了为什么不能只信 return_url：那个跳转只是"浏览器回来了"，
+不是"钱到账了"，任何人都能手工构造那个 URL。
+
+**沙箱准备步骤**（明天开工第一件事，别等付款时才发现没配；
+完整的「要什么 / 谁做 / 要确认什么」清单见第九节，这里只留操作顺序）：
+0. **先确认两件事**：加签方式是**公钥模式**（不是证书模式）、
+   沙箱应用已开通**电脑网站支付**。这两件不对，后面全是白折腾，且报错不会指路（第九节 C）；
+1. 沙箱控制台 → 应用 → 复制 APPID；
+2. 用 AlipayKeyTool-2.0.3.exe（就在参考目录里）生成应用私钥/公钥 →
+   把**应用公钥**填进沙箱控制台；
+3. 填完控制台会给出**支付宝公钥** → 复制到 `alipay.public-key`
+   （这跟第 2 步的公钥**不是同一个**，见七.7）；
+4. 沙箱账号页拿买家账号 + 登录密码 + 支付密码（付款时要输）；
+5. 买家账号余额为 0 的先充值（已确认沙箱买家账号可自定义充值）。
+6. 顺手确认网关地址是新版还是老版（第九节末），老版要改 `alipay.gateway-url`。
+
+------------ 5.5  网关改动（两处，都是必须的）-----------
+
+**① 加路由**：`api-gateway/src/main/resources/application.yml:28-34`，把 membership
+并进已有的 ticket-service 那条 predicates（少一个路由、少一份 127.0.0.1:8082 重复）：
+```yaml
+  - id: ticket-service
+    uri: http://127.0.0.1:8082
+    predicates:
+      - Path=/api/v1/tickets,/api/v1/tickets/**,/api/v1/projects,/api/v1/projects/**,/api/v1/membership,/api/v1/membership/**
+```
+
+**② 加白名单**：`api-gateway/.../filter/JwtAuthenticationFilter.java:41-47` 的
+`WHITE_LIST` 里加一条：
+```java
+"/api/v1/membership/callback",
+```
+白名单是 `startsWith` 前缀匹配，写到 `/callback` 这一级就够了，`/callback/alipay` 自动放行。
+**漏了这一处的后果值得单独记住**：支付宝的 POST 回调没有 Authorization 头 →
+网关直接回 401 → 支付宝认为通知失败 → 重试几次后放弃 → 用户付了钱没到账，
+而日志里只有一条莫名其妙的 401（还没有请求体，因为被过滤器挡在最前面）。
+这是本次最容易漏、也最难从现象反推的一处。
+
+（备选方案，只在网关转发 form-urlencoded POST 出问题时启用：natapp 开第二条隧道直连
+127.0.0.1:8082，绕过网关。服务本来就只监听 127.0.0.1，natapp 在本机所以能连。
+代价是回调路径与前端走的路径不一致，排查时容易搞混 —— 所以是备选，不是首选。）
+
+------------ 5.6  前端改动清单 ------------
+
+· **新增 `frontend/src/api/membership.ts`**：照 `api/auth.ts` 的对象字面量写法，
+  `membershipApi = { plans(), me(), createOrder(planCode), getOrder(outTradeNo), listOrders(page, pageSize) }`；
+  在 `frontend/src/api/index.ts` 补一行导出（那个文件现在只有 4 行导出）。
+  `listOrders` 的返回类型写 `PageResult<MembershipOrderDTO>`，
+  照 `api/user.ts:9-11` 的 `listUsers`（`request.get<any, PageResult<T>>(url, { params })`）。
+· **改 `frontend/src/types/index.ts`**：补三个 DTO
+  ```ts
+  export interface MembershipPlanDTO { planCode: string; name: string; price: number; credits: number; days: number; desc?: string }
+  export interface MembershipDTO { isMember: boolean; planCode?: string | null; startedAt?: string | null; expiresAt?: string | null;
+    creditsGranted?: number | null; remaining: number; nextExpireAt?: string | null }
+  export interface MembershipOrderDTO { orderId: number; outTradeNo: string; planCode: string; planCredits: number; planDays: number;
+    amount: number; status: 'PENDING' | 'PAID' | 'CLOSED'; paidAt?: string | null; expiresAt?: string | null; createdAt?: string | null }
+  ```
+  注意 `status` 里的 `PENDING` 与 `ProjectStatus` 的 `PENDING`（types/index.ts:352）
+  **是两个不同的联合类型**，别为了"复用"把它们并成一个。
+· **新增 `frontend/src/utils/order-labels.ts`**：订单状态展示映射，照
+  `utils/ticket-labels.ts`（全站唯一一份同类文件）的写法与兜底：
+  `PENDING → '待支付' / warning`、`PAID → '已支付' / success`、`CLOSED → '已关闭' / info`，
+  出两个函数 `getOrderStatusLabel(status)` / `getOrderStatusType(status)`，
+  未知值分别兜底 `|| status` 与 `|| 'info'`。
+  **单独立一个文件**（而不是塞进 ticket-labels.ts，那个文件是工单域的），
+  因为个人主页和结果页两处都要用。金额与时间不写新工具 ——
+  照全站惯例模板内联 `¥${...}`、`new Date(x).toLocaleString('zh-CN')`。
+· **新增 `frontend/src/views/membership/Membership.vue`**：套餐卡片 + 权益说明
+  （30 天 30 次、到期未用完作废、可叠加续费）+「立即开通」按钮。
+  已是会员时显示到期日与「再买一期」。价格与次数**从 /membership/plans 取**，不写死。
+  样式走既有深色体系：`glass-card` / `btn-glass-primary`（变量定义在
+  frontend/src/assets/main.css:5-47），**不要**写死浅色色值 —— 这个仓库专门修过两轮
+  主题硬编码（见最近两条 fix(theme) 提交）。
+· **新增 `frontend/src/views/membership/MembershipResult.vue`**：挂载后每 2 秒轮询
+  `getOrder`，PAID 展示成功 + 发放次数 + 会员到期日，CLOSED 展示已关闭，
+  到终态**立刻停轮询**；30 次（1 分钟）仍 PENDING 时给一个「刷新状态」按钮手动再查。
+  **卸载时必须 clearInterval**，否则切走页面后还在打接口。
+  单号要认**两个参数名**：`out_trade_no`（支付宝同步跳回来时自己追加的，蛇形）
+  和 `outTradeNo`（我们下单后 router.push 带过去的驼峰名、以及从「我的订单」点进来的）。
+  只认一个，另一个入口进来就是"缺少订单号"。
+  ⚠️ 文案分寸：**不要写"1 分钟内到账"**这种承诺。PENDING 且创建不足 15 分钟时，
+  `GET /orders/{no}` 只读我们自己的库（不发网络请求），所以那段时间状态更新**完全依赖
+  异步回调**；满 15 分钟后刷新才会主动向支付宝查一次（5.4）。页面上的说明要照这个事实写。
+· **新增 `frontend/src/views/profile/Profile.vue`（个人主页）**：`el-tabs type="border-card"`
+  （先例 ProjectDetail.vue:44-69）三个 tab：
+  - **账号信息**：`el-descriptions :column="2" border`（先例
+    project/components/AiAnalysis.vue:27-30）展示用户名/昵称/邮箱/角色/注册时间，只读。
+    ⚠️ **数据不在 store 里**：`stores/auth.ts:54-71` 的 `setAuthData` 只填了
+    `id/username/nickname/role`，`email` 还写死成 `''`，**`createdAt` 压根没有**。
+    所以这个 tab 要调 `userApi.getUser(authStore.userInfo.id)`（前端已封装，`api/user.ts`）
+    拉完整资料。已核实 `GET /api/v1/users/{id}` **没有归属校验**
+    （UserController.java:24-27），读自己的资料不用动后端；
+    也正因为它没有校验，**不要**顺手用它显示任何敏感字段。
+  - **我的会员**：`GET /membership/me` 的结果 + 「立即开通 / 再买一期」跳 /membership。
+  - **我的订单**：`el-table` + `el-pagination`，照 `views/admin/UserManage.vue:7-71`
+    那套（`page`/`pageSize` 从 1 开始，配 `PageResult`；`v-loading`；`@current-change`
+    与 `@size-change` 都指向同一个 load 函数）。列：订单号、套餐、金额、状态（用
+    order-labels 的 el-tag）、创建时间、支付时间、会员到期日。
+    响应拦截器已经剥掉 `{code,message,data}` 信封（utils/axios.ts:75-90），
+    所以直接写 `res.data`（数组）和 `res.total`（数字）。
+    空态文案写「还没有会员订单」时要想清楚：**CLOSED 单也在列表里**，
+    所以"没有订单"和"没有已支付订单"是两回事，别把已关闭的过滤掉。
+· **改 `frontend/src/router/index.ts`**：在 AppLayout 下加**三条**子路由
+  `membership`、`membership/result`、`profile`。三条都**不写** `meta.requiresAuth: false`
+  （默认要登录）—— 与 `tickets/:id` 那条刻意公开的详情不同，这三页没有"游客能看"的内容。
+  注意 `:pathMatch(.*)*` 的 NotFound 必须留在最后一条子路由之后（现在的顺序就是对的，别插错位置）。
+· **改 `frontend/src/views/ticket/TicketDetail.vue`**：把 `showMembershipSoon()`
+  （650-652 行那句 `ElMessage.info('会员功能即将上线，敬请期待')`）改成
+  `router.push('/membership')`，函数名顺手改成 `goMembership`。
+  两处调用点不用动：`:248-259` 的「了解会员」按钮、`:683` 的 aiPrecheck。
+· **改 `frontend/src/layouts/AppLayout.vue`**：下拉菜单（:71-84，现在**只有
+  `logout` 一项**）加两项：`profile`（个人主页）与 `membership`（开通会员），
+  都放在退出登录**上面**，`logout` 加 `divided` 分隔线
+  （退出是不可逆动作，混在一起容易误点）。
+  `handleCommand`（:124-132，现在只有一个 `if (command === 'logout')`）加对应两个分支。
+  **实际加了两项而不是一项**：会员页除了工单详情页那个「了解会员」按钮之外
+  没有别的固定入口，而下拉菜单是不依赖侧边栏的唯一入口。
+  **不加**顶栏会员徽标 —— 那要给 AppLayout 挂一个每次进页面都发的请求，
+  为了一个标识不值得；会员状态在个人主页和工单详情页额度徽标上都能看到。
+  侧边栏（:25-52）也不加菜单项：那四个入口是全站主功能的平级导航，
+  "个人主页"属于账号区，放顶栏下拉里更对。
+· **改 `frontend/src/utils/ai-quota.ts:16-20` 的注释**：那两个常量的注释改为
+  「与后端套餐配置必须一致（MONTHLY_30: 30 次 / 30 天），改后端配置时这两行一起改」。
+  本次**保留常量**，不改成从接口取 —— 与文件开头 `SIGNUP_BONUS_CREDITS` 的既有约定一致
+  （那个注释已经把"两边不一致会被用户当成虚假宣传"这个教训写清楚了），
+  为两处文案引入一个异步请求，收益不值。若以后套餐档位变多，再改成从 plans 取。
+
+------------ 5.7  新增/修改文件清单（照这个建，别另起名字）------------
+
+ticket-service（新增）
+  entity/MembershipOrder.java            订单实体（唯一键写在 @Table 里）
+  repository/MembershipOrderRepository.java   含 findByOutTradeNo、加悲观锁的读法
+  repository/UserMembershipRepository.java    查有效会员（status=ACTIVE 且未过期）+ 悲观写锁
+  enums/MembershipOrderStatus.java       PENDING / PAID / CLOSED
+  enums/MembershipPlan.java              MONTHLY_30：价格/次数/天数/文案（价格的唯一来源）
+  config/AlipayProperties.java           @ConfigurationProperties("alipay")
+  config/AlipayClientConfig.java         装配 AlipayClient（一个 bean，别每处 new）
+  service/MembershipService.java         带事务的短动作：plans / me / createOrder /
+                                         listOrders / fulfill / closeIfPending（见坑 16）
+  service/MembershipPaymentService.java  **不带事务**的编排：回调处理、轮询查单兜底
+                                         （原清单里没有，实现时拆出来的，理由见坑 16）
+  service/AlipayGateway.java             发请求、查单、验签（唯一接触 SDK 的类）
+  dto/MembershipPlanDTO.java             套餐（价格/次数/天数/文案）
+  dto/MembershipDTO.java                 我的会员状态 + 余额
+  dto/MembershipOrderDTO.java            订单（含 createdAt，供列表页）
+  controller/MembershipController.java   5.2 的六个接口（回调那个返回 String）
+
+ticket-service（修改）
+  pom.xml                                 加 alipay-sdk-java
+  src/main/resources/application.yml      加 alipay: 段（见 5.4）
+
+仓库根 / 网关（修改）
+  db/schema.sql                           末尾加 membership_order
+  db/migration.sql                        加 IF NOT EXISTS 建表
+  api-gateway/.../application.yml         路由 predicates 加 membership
+  api-gateway/.../filter/JwtAuthenticationFilter.java   WHITE_LIST 加回调前缀
+
+frontend（新增）
+  src/api/membership.ts
+  src/utils/order-labels.ts                订单状态 → 文案/颜色的映射
+  src/utils/role-labels.ts                 身份 → 文案/颜色的映射（**实现时从
+                                           views/admin/UserManage.vue 里提出来共用的**，
+                                           原清单没有；个人主页要显示身份，
+                                           再抄一份必然漂移）
+  src/views/membership/Membership.vue      套餐页（开通 / 再买一期）
+  src/views/membership/MembershipResult.vue 支付结果页（轮询 + 手动查一次）
+  src/views/profile/Profile.vue            个人主页（账号信息 / 我的会员 / 我的订单）
+frontend（修改）
+  src/api/index.ts、src/types/index.ts、src/router/index.ts、
+  src/views/ticket/TicketDetail.vue、src/layouts/AppLayout.vue、src/utils/ai-quota.ts、
+  src/views/admin/UserManage.vue（两处身份映射被提到 utils/role-labels.ts，这里改成 import）
 
 
 ====================================================================
 六、与前端、AI 门禁的衔接点
 ====================================================================
-· 前端**现在就有**接入位置，不用重做：
-  - 工单详情 AI 卡片的"额度不足"提示里已经写了「开通会员可获得 30 次（30 天有效）」，
-    目前点了弹"会员功能即将上线"，接上套餐页时把那个 ElMessage 换成跳转即可；
-  - frontend/src/utils/ai-quota.ts 里的 MEMBERSHIP_CREDITS = 30、
-    MEMBERSHIP_DAYS = 30 就是为这个准备的，改文案时两边要对齐；
-  - 账户级余额目前只在工单详情页显示（GET /{id}/ai-usage）。做会员时需要
-    一个不依赖工单的余额入口（就是上面的 /membership/me）。
+· 前端接入位置**现在就有**，不用重做（行号是今天核对过的）：
+  - TicketDetail.vue:252-259 的「了解会员」按钮、:580 的 creditHint、:631 的 chatBanner
+    文案里已经写着「开通会员可获得 30 次（30 天有效）」，:650-652 那句 ElMessage
+    就是要被替换掉的占位；
+  - frontend/src/utils/ai-quota.ts 的 MEMBERSHIP_CREDITS = 30 / MEMBERSHIP_DAYS = 30
+    就是为这个准备的，改文案时两边要对齐（见 5.6 最后一条）；
+  - 账户级余额目前只在工单详情页显示（GET /{id}/ai-usage），所以需要一个不依赖工单的
+    余额入口 —— 就是 `GET /membership/me`。
 
-· AI 门禁**一行都不用改**。三个 AI 接口只认 AiQuotaService.reserve 扣减，
-  而 reserve 只关心"有没有可用批次"，不关心批次是注册送的还是买的。
-  会员次数一插进批次表，立刻就能用 —— 这就是当初把额度做成批次表而不是
-  布尔字段的目的。
+· **但「个人主页 / 我的订单」这两块没有现成位置，是从零新建**（今天核实）：
+  `frontend/src/views/` 下只有 ticket / project / knowledge / admin / auth(空) / NotFound，
+  全站**没有任何个人页、订单页**，`grep 订单|order|profile|个人|account` 在前端源码里
+  除了 CSS 的 `border` / `sortOrder` 之外零命中。所以这块不是"接一个入口"，
+  而是"加一页 + 加三条路由 + 加一个 API 模块"（清单见 5.6/5.7）。
+  一个附带好处：因为没有历史包袱，命名可以一次定对 —— 订单域的东西一律带 `order`，
+  不要再出现"会员页里塞订单"这种混着放的做法。
+
+· 顺带记一个今天核实的**前端信息缺口**，它决定了个人主页怎么写：
+  登录后 store 里只有 `id/username/nickname/role`（stores/auth.ts:54-71），
+  `email` 是写死的空串、`createdAt`（注册时间）不在 `LoginResponse` 里，
+  所以「账号信息」必须额外拉一次 `GET /api/v1/users/{id}`。
+  这也意味着**别指望 store 里有余额/会员状态** —— 会员状态一律现查 `/membership/me`。
+
+· **AI 门禁一行都不用改**（今天复核过）。三个 AI 接口只认
+  `AiQuotaService.reserve`（AiQuotaService.java:207-261）扣减，而 reserve 只关心
+  "有没有可用批次"（走 findUsable / lockUsable），不关心批次是注册送的还是买的。
+  会员次数一插进 ai_credit_batch 立刻就能用 —— 这就是当初把额度做成批次表
+  而不是布尔字段的全部目的。调用链是 AiQuotaGate.run(ticketId, userId, feature, ...)，
+  它本身不带事务（AiQuotaGate.java:14 的注释说明了为什么）。
 
 · 会员到期后未用完的次数：**不需要任何代码**。批次 expires_at 一过，
-  findUsable 就不再返回它，余额自动减少，AI 按钮自动变灰。
+  findUsable 就不再返回它，余额自动减少，AI 按钮自动变灰
+  （前端 `canAfford = (quota?.balance ?? 0) > 0`，TicketDetail.vue:542）。
 
 
 ====================================================================
 七、已知取舍与要注意的坑
 ====================================================================
-1. 过期是**惰性**的，不是准时的。用户过了 expires_at 但没再打开页面时，
+
+1. **过期是惰性的，不是准时的。** 用户过了 expires_at 但没再打开页面时，
    数据库里那行批次的 remaining_amount 仍然 > 0（只是不再被统计）。
    查"还剩多少"一律用 findUsable，**不要**用 SUM(remaining_amount) 直接查全表 ——
    后者会把过期次数算进去。这是最容易写错的一处。
+   同一个道理也适用于 user_membership：判断身份用 `expires_at > NOW()` 这个条件，
+   不要"到期时记得把它标成 EXPIRED"。
 
-2. 退款（AI 调用失败退次数）退回到**原来那一批**。如果退款时那一批刚好
-   已经过期，退回去的次数会被惰性过滤挡掉、等于作废。这是可接受的：
+2. **重复回调的幂等有三道闸，得按顺序全上**（见 5.3）：
+   订单行锁（真正的互斥）→ 状态判断（快路径）→ biz_key 唯一键（最后防线）。
+   只靠其中任何一个都不行：状态判断在并发下会双读 PENDING；
+   biz_key 管不到 user_membership 那张没有唯一键的表。
+
+3. **AI 调用失败退次数**退回到**原来那一批**（AiUsage.batchId）。如果退款时那一批
+   刚好已经过期，退回去的次数会被惰性过滤挡掉、等于作废。这是可接受的：
    那次调用本来就发生在会员期内，费用不该顺延到下一期。
 
-3. 会员期内买的次数用完了，会员还没到期 —— 此时应该允许"再买一份"。
-   续费规则（三）里的"新插一行"天然支持这一点，不用特殊处理。
+4. **会员期内买的次数用完了、会员还没到期** —— 此时应该允许"再买一份"。
+   续费规则（三）里的"新插一行"天然支持，不用特殊处理；
+   但并发保护不能少（5.3 的那个用户级锁就是为这个场景准备的）。
 
-4. 客服退款（退钱）与次数无关：钱退回去，**已经发出去的次数不收回**。
-   否则又是一个刷额度口子。真要收回得走管理员手工调整，留痕。
+5. **客服退款（退钱）与次数无关**：钱退回去，**已经发出去的次数不收回**。
+   否则又是一个刷额度口子。本次干脆不做退款（一.7）。
+   真出现纠纷需要收次数，走管理员手工调整，留痕。
 
-5. 不要把"是不是会员"写成读某个缓存字段。身份判断必须落到
+6. **不要把"是不是会员"写成读某个缓存字段。** 身份判断必须落到
    `status='ACTIVE' AND expires_at > NOW()` 这个实时条件上，否则到期当天
    会出现"缓存说还是会员、次数却已经不可用"的矛盾状态。
 
+--- 以下是本次新增的（支付相关）---
+
+7. **沙箱控制台里的「支付宝公钥」不是应用公钥。** 流程是：本地生成一对密钥 →
+   把**应用公钥**填进沙箱控制台 → 控制台据此给出**支付宝公钥** → 那个才是
+   `alipay.public-key`。填错的表现是回调验签失败、报 `invalid-signature`，
+   而且错误信息不告诉你是哪个公钥错了。验证：回调日志里能看到验签失败的原文，但没线索。
+
+8. **natapp 免费隧道的域名每次重启都变。**
+   所以 notify-url 走配置（5.4），改了要**重启 ticket-service**才会生效。
+   配套的两个动作：① 下单返回的 payUrl 里带的是下单那一刻的 notify-url，
+   所以改完配置后**旧的待支付订单不要付**，重新下单；
+   ② 每次联调前先访问一次 `http://隧道域名/api/v1/membership/callback/alipay` 自检链路。
+
+   ⚠️ **判据订正（10-09 实测）**：本节原来写的是"GET 回 405 就是好的"，
+   **实际不是 405**。这条路径只映射 POST，Spring 抛出
+   `HttpRequestMethodNotSupportedException`，被 common 的全局异常处理器接住，
+   于是返回的是 **HTTP 200**，正文 `{"code":500,"message":"Internal server error:
+   Request method 'GET' is not supported"}`。所以判断要看**正文里的那句话**，
+   不要看 HTTP 状态码 —— 只看状态码会以为链路坏了。
+
+   实测三种结果的真实形状：
+   ```
+   GET /api/v1/membership/callback/alipay
+        → 200 + 正文含有 "Request method 'GET' is not supported"   ← 四段全通
+   GET /api/v1/membership/plans（无 token）
+        → 真实 HTTP 401 {"code":401,"message":"请先登录"}          ← 网关自己回的，正常
+   GET /api/v1/membership/nope（无 token）
+        → 也是 401，**不是 404**
+   ```
+   最后一行是个**新发现的陷阱**：网关的 `JwtAuthenticationFilter` 在路由**之前**跑，
+   所以任何未进白名单的路径（哪怕是拼错的、压根没路由的）都统一回 401。
+   于是"404 = 路由没加"这个判据**不成立** —— 路由没加和路径拼错长得一模一样，
+   都是 401。要确认路由真的加了，只能拿一个**走白名单**的路径（回调）去看是否
+   抵达了 controller。
+
+   想单独验"支付宝回调这条路通"，比 GET 更直接的是发一个**签名无效的 POST**：
+   ```
+   POST http://隧道域名/api/v1/membership/callback/alipay
+        （随便带几个参数）
+   → 200 Content-Type: text/plain 正文恰好是 "failure"
+   ```
+   这一条同时验证了三件事：穿透 + 网关 + 白名单全通、controller 被调到、
+   返回值是**纯文本**而不是 Result 信封（后者会让支付宝一直重试）。
+   10-09 实测通过。
+
+9. **`window.open` 必须在用户点击的同步调用栈里先开占位窗口。**
+   `await createOrder()` 之后才 `window.open` 会被浏览器当成弹窗拦截，
+   现象是"点了没反应"（没有报错）。所以是 `const w = window.open('', '_blank')`
+   先开、拿到 HTML 再 `w.document.write(...)`。这是甲乙两种 payUrl 取法的共用坑。
+
+10. **轮询要能停下来。** 结果页的 setInterval 必须在 unmounted 时清掉；
+    另外用户如果一直停在结果页，轮询次数要有上限（30 次 × 2 秒 = 1 分钟），
+    到上限给手动按钮，别一直打接口。
+
+11. **沙箱买家账号余额要自己充**（已确认可自定义充值），余额为 0 时付款页会直接失败，
+    错误留在支付宝页面而不是我们日志里，容易误判成"回调没来"。
+
+12. **构建与验证环境的两个既有坑**（不是本次引入的，但一定会碰到）：
+    · 命令行 mvn 必须用 **JDK 17**（根 pom `java.version=17`）。JDK 24 下 Lombok 会静默失效、
+      报一堆假错误（找不到 getter/setter），照着那些错误改代码是纯浪费。
+    · Windows 控制台是 GBK，**中文 payload 和 stdout 都不可信**：验证时别靠肉眼看打印的中文，
+      断言里的中文要从源码抄（源码是 UTF-8，比对码点才准）。
+
+--- 以下是这一轮加「我的订单」后新增的 ---
+
+13. **放弃的订单会在列表里留多条「已关闭」，这是有意的，别去清理。**
+    因为不给「继续支付」（一.13），用户每放弃一次就会多一条 CLOSED 记录。
+    三条不要做的事：
+    · 不要为了列表好看去**物理删除**这些行 —— 删了就没有"这个账号点过几次开通"的痕迹，
+      真出现"我说我付了你没到账"的争议时也没有单据可查；
+    · 不要把它们**过滤掉不查**（列表接口刻意不分状态，见 5.2 ⑤）——
+      用户会以为自己的操作没被记录，反而更慌；
+    · 空态文案不要写「还没有订单」，因为这个列表包含已关闭的单，
+      而"一条都没有"和"没有已支付的单"是两回事。
+    正经做法是列表里如实显示「已关闭」，用户自己要付就重新下单。
+    另外这跟 5.3 那个"迟到的支付"是一套：**已关闭的单仍然可能被支付宝侧付掉**，
+    所以列表里的「已关闭」不等于"这笔交易在支付宝那边一定没发生"，
+    界面上别加"已关闭的单永远不会到账"这种断言。
+
+14. **不要把订单关闭写成"按时间硬关"**（5.3 第三个要点展开就是它）。
+    我们主动标 CLOSED 的那一刻，支付宝那边的交易通常还活着 ——
+    用户从支付宝的交易列表里把旧单付掉，回调会带着 `TRADE_SUCCESS` 到达。
+    两个动作能保证钱不白收：① 关闭判据取自**主动查单的结果**（`TRADE_CLOSED` 或查不到），
+    不是我们这边的钟；② `fulfill` 的守卫只挡 `PAID`、**不挡 CLOSED**。
+    验收里专门有一条（第十节 8）测这个：先让单变已关闭，再用该单号重放一次成功回调，
+    次数必须照发。这条测试是本次唯一能证明"没写歪"的手段。
+
+--- 以下是**实现时踩到**、文档原先没写的（10-09 补记）---
+
+15. **SDK 的 `JSONWriter` 不认 `@ApiField`，biz_content 会被序列化成驼峰。**
+    这是本次实现里唯一一个"本地看起来全对、到支付宝那边什么都没传"的真 bug。
+    `AlipayTradePagePayRequest.setBizContent(String)` 收的是字符串，于是有两种写法：
+    · 喂 SDK 自带的 model（`AlipayTradePagePayModel`）—— 那些字段上挂着
+      `@com.alipay.api.internal.mapping.ApiField("out_trade_no")`，
+      但 `JSONWriter` **不看这个注解**，它照 Java 属性名序列化成
+      `{"outTradeNo":…,"totalAmount":"30.00","productCode":…,"subject":…}`；
+    · 喂一个 `LinkedHashMap` —— **键原样输出**。
+    用前者时 biz_content 的参数名全对不上，支付宝会当未知字段忽略，
+    现象是收银台打不开或报参数错，而本地一切正常、日志里连个警告都没有。
+    所以 `AlipayGateway.bizContent(Map)` 收 Map、键一律手写蛇形
+    （`out_trade_no` / `total_amount` / `subject` / `product_code`），
+    `queryTrade` 同理（`out_trade_no`）。
+    验证方法（10-09 实测过）：把下单返回的 payUrl 里的 `biz_content` 取出来
+    url-decode 再 json 解析，检查键名**全小写带下划线**、
+    `total_amount` 是 `"30.00"` 这种两位小数字符串。
+
+16. **`@Transactional` 靠代理生效，同类自调用会静默失效** —— 这条决定了类怎么拆。
+    回调处理与轮询查单必须调支付宝网络接口（可能几秒到几十秒），
+    不能圈进数据库事务占着 Hikari 连接（池默认 10 条）；
+    而"到账发放"必须在事务里。两者放同一个类里必然出事：
+    编排方法不带事务 → 它自调用 `fulfill`，**事务不生效**（不走代理），
+    "发了次数但会员行没插上"这类中间态就没有任何保护了。
+    所以拆成两个类：
+    · `MembershipService` —— 带 `@Transactional` 的短事务数据库动作
+      （createOrder / fulfill / closeIfPending / 各种查询）；
+    · `MembershipPaymentService` —— **不带事务**的编排
+      （handleAlipayNotify / getOrderWithSync / syncFromAlipay），
+      通过**跨 bean 调用**进到上面那些事务方法，事务正常生效。
+    ⚠️ 这是相对本文档 5.7 文件清单的**新增文件**，清单已同步。
+    以后加编排方法记住：不要往 `MembershipService` 里塞带网络调用的方法。
+
+17. **`db/schema.sql` 是手写记录，与 Hibernate 实际建出来的表**不一致**，
+    这不是新问题，但别拿 schema.sql 当物理结构的依据。**
+    实测 `membership_order.status` 在库里是
+    `ENUM('CLOSED','PAID','PENDING')`（`ddl-auto: update` + 枚举字段的产物），
+    而 schema.sql 里写的是 `VARCHAR(16)`。同样的情况早就存在：
+    `ai_credit_batch.source`、`ai_usage.status/feature` 是 ENUM，
+    而 `ticket.status`、`user_membership.status` 是 VARCHAR。
+    本次照该文件自己的风格继续用 VARCHAR（保持一致），但**要知道**：
+    加一个新的枚举值 `PENDING_FOO` 时，Hibernate 会去改 ENUM 定义，
+    而手写 DDL 不会 —— 两边的差异只能靠 `information_schema` 现查，不能靠读文件。
+
+18. **业务错误的 HTTP 状态码是 200，真正的错误码在响应体的 `code` 里。**
+    验收脚本最容易踩：`POST /orders` 传未知 planCode，期望 400，
+    实际拿到的是 **HTTP 200** + `{"code":400,"message":"未知的套餐：NOT_A_PLAN"}`；
+    读别人的订单同理，HTTP 200 + `{"code":403,"message":"只能查看自己的订单"}`。
+    所以**断言要看 body.code，不要看 HTTP 状态码**。
+    例外：网关自己产生的 401（`JwtAuthenticationFilter`）是**真实的 HTTP 401**，
+    因为它在 MVC 之前就返回了。前端不用管这个差异 ——
+    `utils/axios.ts` 的响应拦截器对 `code !== 200` 一律 reject 并弹出 message，
+    两种形状都能正确报错。
+
+
 
 ====================================================================
-八、本次没有做的（明确边界）
+八、明天的开工顺序
 ====================================================================
-· 上面第五节列的所有接口；
-· membership_order 表（见第五节的说明，做支付时必须新增）；
-· 任何前端会员页面、套餐卡片、支付流程；
-· 支付渠道对接（微信 / 支付宝 / 模拟支付）；
-· 会员权益除"送次数"之外的任何内容（比如加急、置顶、专属标识）。
+批次 0 —— 环境（不做完这批不写代码）
+  · 用户提供密钥（见第九节）；沙箱控制台按 5.4 的五步配好应用公钥/支付宝公钥；
+  · 起 natapp，把域名填进 **application-secret.yml** 的 `ALIPAY_NOTIFY_URL`
+    （这个文件仓库里已经有了、已被 gitignore 排除、application.yml 已 import，
+    别新建 application-local.yml —— 理由见 5.4）；
+  · 确认 maven 能联网拉到 alipay-sdk-java:4.16.2.ALL。
+
+批次 1 —— 表与实体
+  · 三处 DDL（schema.sql / migration.sql / JPA 实体，唯一键别漏）；
+  · MembershipOrder 实体 + MembershipOrderRepository + UserMembershipRepository；
+  · 起 ticket-service 确认表建出来了（ddl-auto: update），并且 `SHOW CREATE TABLE
+    membership_order` 里**有** uk_order_out_trade_no。
+
+批次 2 —— 只读接口 + 网关
+  · MembershipPlan 枚举 + AlipayProperties；
+  · GET /membership/plans、GET /membership/me；
+  · 网关路由 + 白名单（5.5 两处一次改完）；
+  · 验证：带 token 调 /membership/me 返回 remaining=5、isMember=false。
+
+批次 3 —— 下单与支付链接
+  · POST /membership/orders + AlipayGateway 封装 + AlipayClientConfig；
+  · 验证：拿到 payUrl，浏览器打开能看到沙箱收银台、金额 30 元正确。
+
+批次 4 —— 到账（本批是核心）
+  · fulfil() + 回调 + 主动查单兜底 + GET /membership/orders/{outTradeNo}
+    + GET /membership/orders（我的订单列表，纯读库、无外部调用）；
+  · 验证：第十节的 2/3/4/8 四条 —— 含停掉 natapp 那一测，
+    以及"已关闭的单收到迟到回调必须照发"那一测（8 是本次唯一能证明没写歪的测试）。
+
+批次 5 —— 前端（两页 + 一页个人主页）
+  · 5.6 的全部改动。建议顺序：api + types + order-labels → 会员页 → 结果页 →
+    个人主页 → 路由/入口 → TicketDetail 的跳转（最后做，因为它会把线上的
+    "会员功能即将上线"替换掉，前面没跑通时不好回退）；
+  · 验证：第十节的 1/7；再从工单详情页「了解会员」→ 会员页 → 付款 → 结果页 →
+    回详情页看到额度徽标从 5 变 35。
+
+批次 6 —— 端到端与边界
+  · 第十节的 5/6/9（过期、越权、坏签名、三处数字一致性）。
+
+提交习惯：**每批一个 commit，只覆盖当次任务**。工作区现在还有几处在途改动
+（TicketChat.vue / TicketDetail.vue / TicketController.java / ChatService.java /
+TicketService.java 的私聊权限那条线），别顺手带进来；同一个文件混着两种改动时
+不要整文件 add。
+
+
+====================================================================
+九、明天要用户提供的东西
+====================================================================
+分三类，别混：**A 是要交给 Claude 的**，B 是你自己在沙箱控制台做的（做完告诉一声就行），
+C 是开工前要确认的两件事（这两件不对，后面全是白折腾）。
+
+--- A. 要交给 Claude 的（4 项）---
+1. **沙箱 APPID**（形态：16 位数字，如 2021000146627253）；
+2. **应用私钥**（APP_PRIVATE_KEY）—— 必须 **PKCS8** 格式、**一行到底不带换行**、
+   不带 `-----BEGIN PRIVATE KEY-----` 头尾。AlipayKeyTool 生成的默认就是 PKCS8；
+3. **支付宝公钥**（ALIPAY_PUBLIC_KEY）—— 见 B3，是**控制台显示出来的那个**，
+   不是你自己生成的公钥（两者长得像但不是一回事，见七.7）；
+4. **natapp 隧道域名**（`http://xxxx.natappfree.cc`）—— 启动 natapp 之后才有，
+   所以要等隧道跑起来才能填。免费版每次重启都变，改了要重启 ticket-service。
+
+（另外 natapp 的 **authtoken** 是启动隧道本身要用的，填在 natapp 的 config.ini 里，
+不需要给我 —— 我只需要最后的域名。）
+
+--- B. 你自己在沙箱控制台做的（按顺序）---
+1. 建/进入沙箱应用 → 复制 APPID；
+2. 用 AlipayKeyTool-2.0.3.exe（就在参考目录里）生成一对密钥；
+3. 「接口加签方式」填**应用公钥**（不是给我，是给控制台）；
+4. 控制台据此显示**支付宝公钥** → 这个才是 A3；
+5. 沙箱账号页拿**买家账号 + 登录密码 + 支付密码**（付款时要输，支付密码≠登录密码）；
+6. 买家账号余额不足的先充值（已确认可自定义充值）。
+
+--- C. 开工前必须确认的两件事 ---
+1. **加签方式是「公钥模式」，不是「证书模式」。** 证书模式要给 3 个证书文件、
+   SDK 初始化方式也不同；参考代码和本文档走的都是公钥模式。选错了不是改配置能救的。
+2. **沙箱应用已开通「电脑网站支付」。** 没签约调 `AlipayTradePagePay` 会报权限不足，
+   而报错信息不会告诉你"去签约"，只会让你怀疑密钥错了。
+   如果控制台里另有「支付」类产品（手机网站支付/APP支付），确认勾的是**电脑网站支付**。
+
+顺带一个要你确认的信息：你登录的沙箱控制台的**网关地址**是新版还是老版。
+本文档按新版写 `https://openapi-sandbox.dl.alipaydev.com/gateway.do`（参考代码用的也是它）；
+老版是 `https://openapi.alipaydev.com/gateway.do`。如果你的示例代码里给的是后者，告诉我改配置。
+
+--- D. 这几样东西放哪 ---
+A 类四项填进 `ticket-service/src/main/resources/application-secret.yml`（平铺键，
+唯一 notify-url 例外——它也是平铺键），这个文件仓库里已经有、已被 gitignore 排除、
+application.yml 已自动加载。具体写法见 5.4，**别新建 application-local.yml**。
+直接贴给我没关系（沙箱密钥泄漏无所谓），但最终只落在那个文件里，不进 git。
+
+
+====================================================================
+十、验证方法
+====================================================================
+前置：JDK 17 起 4 个后端服务 + 前端（vite 3000）；数据库用 ticket-service 的凭据
+（aiticket/aiticket，user-service 是 root/1234，手工改库时别用错）；
+登录账号 admin2/123456（库里唯一能用的管理员；handler_zhang 的密码是占位符，登不进）。
+
+1. **基本链路**：登录 → 工单详情页点「了解会员」→ 会员页看到 ¥30/30 天/30 次
+   （和后端配置一致）→ 开通 → 沙箱收银台付款 → 回到结果页显示已开通。
+2. **到账正确**：`GET /membership/me` 返回 isMember=true、expiresAt ≈ 30 天后、
+   remaining 从 5 变成 35；工单详情页额度徽标同步；AI 按钮从禁用变可用；
+   `ai_credit_batch` 里多出一行 source=MEMBERSHIP、biz_key=MEMBERSHIP:{orderId}、
+   total=remaining=30、expires_at = 会员到期日。
+3. **幂等**：拿同一组回调参数（手工 curl 重放，签名原样带过去）再打一次 → 仍然只有一行批次、
+   只有一行 user_membership、订单还是 PAID 且 paidAt 没变。
+4. **不依赖回调**：停掉 natapp 再付一笔 → 回调必然到不了 → 结果页轮询应通过
+   主动查单把次数补上（这一步验证的是"穿透挂了也能自愈"，是本方案的关键卖点）。
+5. **到期**：手工把 `user_membership.expires_at` 和对应批次的 `expires_at` 改到昨天 →
+   余额回落到 5、AI 按钮变灰、`/membership/me` 的 isMember=false 但 remaining=5。
+   注意**不要**去改 status 字段来模拟到期 —— 身份判断只看 expires_at（七.6）。
+6. **边界**：
+   · 换一个账号 `GET /membership/orders/{别人的 outTradeNo}` → 403；
+   · 调 `GET /membership/orders/{不存在的单号}` → 404；
+   · 手工构造一个签名错误的回调 → 返回非 success、数据库无变化；
+   · 金额篡改（改 total_amount 再重放）→ 验签通过但金额校验拦下，无变化；
+   · 连续点两次「立即开通」→ 只产生一个 PENDING 订单（第三节的复用逻辑）。
+7. **我的订单 + 个人主页**（新增页面，第十节唯一"看界面"的一组）：
+   · `/profile` 能进（普通 USER 角色也能进 —— 三条新路由都没写 requiresAdmin）；
+   · 三个 tab 都能打开：账号信息显示**注册时间**（能显示就证明走的是
+     `GET /users/{id}`，因为 store 里没有这个字段）、我的会员、我的订单；
+   · 我的订单里三种状态都要能看到：付过的显示「已支付」+ 支付时间 + 会员到期日；
+     点开通后关掉支付页的显示「待支付」；超时的显示「已关闭」；
+     金额列是 `¥30`，订单号是完整 `out_trade_no`（23 位，别截断成看不出是哪单）；
+   · 翻页能翻（造 11 条以上记录，或把 pageSize 调成 2 试）；
+   · 用另一个账号登录 → 只能看到自己的单，看不到上面那些。
+
+8. **迟到的支付（本次最要紧的一条正确性验证）**：
+   造一单 PENDING → 直接改库把它置为 `CLOSED`（模拟"我们按时间先把它关了"）
+   → **重放同一组签名正确的回调参数**（out_trade_no 没变，签名仍然有效）
+   → 必须照发次数、订单变 PAID。
+   如果这里不发，说明 `fulfill` 的守卫被写成了 `status != PENDING → 返回`（七.14）。
+   注：不能靠"改 out_trade_no 再重放"来构造这个用例 —— 签名覆盖了 out_trade_no，
+   改了必然验签失败；要用同一组参数 + 手工改库来构造。
+
+9. **套餐数字一致性**（文档自查项）：前端文案里的 30 次 / 30 天
+   与 `MembershipPlan.MONTHLY_30`、`ai-quota.ts` 的两个常量三处一致；
+   价格 30 元与 `MembershipPlan` 的配置一致（不写死在前端）。
+   改动任何一处时另几处一起改 —— 这几个数字将来一定会被人改一次。
+
+⚠️ **第 3 条和第 8 条有个共同前提，先写在这里**：回调的签名是支付宝用**它的私钥**签的，
+我们不可能自己造一个验签通过的请求。所以这两条只能这么测：
+先在浏览器里**真的付一笔**、从 ticket-service 日志里把那次回调的**完整参数**
+（含 sign）抄下来存好，再拿这组参数去重放（第 3 条）或改库后重放（第 8 条）。
+没有那一笔真实支付，这两条无从下手 —— 别想着"随便拼一个签名试试"。
+
+===== 10-09 实测记录（这一轮跑到了哪一步）=====
+
+**已实测通过**（脚本走网关 8080，不是直连 ticket-service）：
+· 登录、`GET /plans`（一档 MONTHLY_30：30.00 / 30 次 / 30 天）、`GET /me`
+  （admin2：isMember=false，remaining=5）、`POST /orders`（返回签名 URL）、
+  `GET /orders`（分页，total=1，只有自己的单）、`GET /orders/{no}`（PENDING、
+  无 expiresAt）；
+· 边界：未知 planCode → body.code=400；新注册用户读别人的单 → body.code=403；
+  新用户 `/me` → isMember=false 且 remaining=5（注册赠送到账）；
+  新用户订单列表 total=0；无 token → 真实 HTTP 401。
+  （注意这一组全是 **body.code**，HTTP 状态是 200 —— 见七.18）
+· biz_content 蛇形：从 payUrl 里解出来是
+  `{"out_trade_no":…,"total_amount":"30.00","subject":…,"product_code":"FAST_INSTANT_TRADE_PAY"}`，
+  中文 subject 逐码点核对无误（七.15）。
+· 回调链路：`POST http://隧道域名/api/v1/membership/callback/alipay`（签名无效）
+  → 200 `text/plain` 正文恰为 `failure`（穿透 + 网关 + 白名单 + controller 全通，
+  且返回的是纯文本不是信封）。
+· 应用与密钥：用手工签名的 `alipay.trade.query` 直连网关 →
+  正常业务响应 `code=40004, sub_code=ACQ.TRADE_NOT_EXIST`。
+  **这一条证明 appId / 应用私钥 / 网关地址 / 应用授权全部正确**，
+  我们自己的签名实现也是对的。
+
+**当前阻塞：沙箱收银台打不开（不是我们的代码问题）**。
+同一个 payUrl 连续请求四次，得到四种不同结果：
+`error.htm?...errorCode=SYSTEM_ERROR` / 跳登录页 / **HTTP 404** / 跳登录页 ——
+不稳定，说明是支付宝侧的问题。另外 `appAssign.htm?...invoke_<hash>` 这个跳转
+（"应用分配"）也指向同一结论：**该应用在沙箱里没有被分配/开通「电脑网站支付」**。
+顺带测到：老网关 `openapi.alipaydev.com` 的 **TLS 证书已过期**，
+所以只能用新版 `openapi-sandbox.dl.alipaydev.com`（用户给的地址是对的）。
+
+**因此下面这些还没验**（都依赖一次真实付款）：
+第十节 1（付款回跳）、2（到账）、3（幂等重放）、4（停 natapp 靠查单补发）、5（到期）、
+6 里的金额篡改、7（界面）、8（迟到的支付）。
+要做它们，先请在沙箱控制台确认这个应用**已开通「电脑网站支付」**
+（产品绑定/能力列表里能看到），再在浏览器里手工付一笔。
+
+**顺带一条**：收银台登录要过**图形验证码**，所以"付款"这步必须人来点，
+脚本没法代劳（也不该去代劳）。
