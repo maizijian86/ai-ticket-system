@@ -41,6 +41,22 @@ spring:
 file:
   upload-dir: ./uploads
 
+# 支付宝沙箱（会员支付）。密钥类字段的真值放 application-secret.yml（已 gitignore），
+# 这里只留 ${...:} 占位引用 —— 没配密钥服务照样能启动，只有"开通会员"那一步不可用。
+alipay:
+  app-id: ${ALIPAY_APP_ID:}
+  private-key: ${ALIPAY_PRIVATE_KEY:}      # 应用私钥（PKCS8，一行到底，不带 BEGIN/END 头尾）
+  public-key: ${ALIPAY_PUBLIC_KEY:}        # 沙箱控制台给出的「支付宝公钥」，**不是**应用公钥
+  gateway-url: https://openapi-sandbox.dl.alipaydev.com/gateway.do
+  sign-type: RSA2
+  charset: UTF-8
+  # natapp 隧道域名，免费版每次重启都会变。改完要**重启 ticket-service** 才生效，
+  # 而且旧的待支付订单不要再付（它带着下单那一刻的 notify-url），重新下单。
+  notify-url: ${ALIPAY_NOTIFY_URL:}
+  # 付款后浏览器跳回的地址。写 localhost 而不是 127.0.0.1：Vite 只监听 IPv6，
+  # 127.0.0.1 会连不上。
+  return-url: ${ALIPAY_RETURN_URL:http://localhost:3000/membership/result}
+
 # AI Service (for Feign)
 # 同网关：ai-service 的 server.address 已绑回环（仅 IPv4），写 localhost 可能解析到 ::1 而连不上
 ai-service:

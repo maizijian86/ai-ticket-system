@@ -35,6 +35,18 @@
             <artifactId>lombok</artifactId>
             <optional>true</optional>
         </dependency>
+        <!-- 支付宝沙箱：PC 网页支付（下单）+ 交易查询（主动查单兜底）+ 回调验签。
+             退款不用 —— 会员是虚拟权益，一开通次数就发出去了，本次不做退款
+             （见仓库根目录 会员额度plan.txt 零节）。所以**不要**引 AlipayTradeRefund
+             以及它依赖的任何东西，连 import 都不写。
+             4.16.2.ALL 是"全部依赖打平"的变体，含 SDK 自带的 http/json 实现，
+             因此**不需要**额外引 fastjson（2.x 的包名是 com.alibaba.fastjson2，
+             混着引会编译不过）。 -->
+        <dependency>
+            <groupId>com.alipay.sdk</groupId>
+            <artifactId>alipay-sdk-java</artifactId>
+            <version>4.16.2.ALL</version>
+        </dependency>
         <!-- LangChain4j -->
         <dependency>
             <groupId>dev.langchain4j</groupId>
