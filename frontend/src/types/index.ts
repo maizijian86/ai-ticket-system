@@ -482,3 +482,55 @@ export interface SpringPage<T> {
   number: number
   size: number
 }
+
+// ==================== 会员与会员订单 ====================
+
+/** 一个会员套餐。价格与权益由后端配置，前端只展示 */
+export interface MembershipPlanDTO {
+  planCode: string
+  name: string
+  price: number
+  credits: number
+  days: number
+  desc?: string
+}
+
+/** 我的会员状态 + 账户余额。非会员时 planCode/startedAt/expiresAt 为 null，但 remaining 照常 */
+export interface MembershipDTO {
+  isMember: boolean
+  planCode?: string | null
+  startedAt?: string | null
+  expiresAt?: string | null
+  creditsGranted?: number | null
+  /** 账户可用次数（未过期批次之和）。非会员时就是注册赠送剩下的那几次 */
+  remaining: number
+  nextExpireAt?: string | null
+}
+
+/**
+ * 会员订单。
+ *
+ * ⚠️ 这里的 `PENDING` 与 `ProjectStatus` 的 `PENDING` **是两个不同的联合类型**，
+ * 只是名字撞了，别并成一个。
+ */
+export interface MembershipOrderDTO {
+  orderId: number
+  outTradeNo: string
+  planCode: string
+  planCredits: number
+  planDays: number
+  amount: number
+  status: 'PENDING' | 'PAID' | 'CLOSED'
+  paidAt?: string | null
+  /** 会员到期日。**只在 PAID 的行上有值**，别拿 PENDING/CLOSED 的行算天数 */
+  expiresAt?: string | null
+  createdAt?: string | null
+}
+
+/** 下单出参：收银台地址（个别情况下是自动提交的 form HTML，见 Membership.vue 的 goPay） */
+export interface MembershipPayDTO {
+  orderId: number
+  outTradeNo: string
+  amount: number
+  payUrl: string
+}

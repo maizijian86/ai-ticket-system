@@ -248,7 +248,7 @@
                     v-if="chatBanner.type === 'no-credit'"
                     link
                     type="primary"
-                    @click="showMembershipSoon"
+                    @click="goMembership"
                   >
                     了解会员
                   </el-button>
@@ -642,8 +642,12 @@ function isAxiosError(e: any): boolean {
   return !!e?.isAxiosError
 }
 
-function showMembershipSoon() {
-  ElMessage.info('会员功能即将上线，敬请期待')
+/**
+ * 去会员页。此前这里是一句"会员功能即将上线，敬请期待"—— 页面上「了解会员」的按钮
+ * 点了什么都不会发生（只弹一条提示），因为那时确实没有会员页。现在有了。
+ */
+function goMembership() {
+  router.push('/membership')
 }
 
 /**
@@ -675,7 +679,9 @@ function aiPrecheck(state: AiFeatureState, label: string): boolean {
   }
   if (quota.value.balance <= 0) {
     ElMessage.error('AI 辅助开发额度不足')
-    showMembershipSoon()
+    // 直接带他去会员页：这里除了"额度不够"没有别的出路，停在原地说一句
+    // "额度不足"然后什么都不做，等于让他自己去猜哪里能充。
+    goMembership()
     return false
   }
   return true

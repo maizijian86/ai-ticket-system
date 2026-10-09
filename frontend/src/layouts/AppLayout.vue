@@ -78,7 +78,11 @@
             </span>
             <template #dropdown>
               <el-dropdown-menu>
-                <el-dropdown-item command="logout">退出登录</el-dropdown-item>
+                <el-dropdown-item command="profile">个人主页</el-dropdown-item>
+                <el-dropdown-item command="membership">开通会员</el-dropdown-item>
+                <!-- 分隔线把"去某个页面"和"退出"分开：退出是不可逆的副作用，
+                     与上面两项混在一起容易被误点 -->
+                <el-dropdown-item command="logout" divided>退出登录</el-dropdown-item>
               </el-dropdown-menu>
             </template>
           </el-dropdown>
@@ -122,6 +126,15 @@ function handleMenuSelect(index: string) {
 }
 
 async function handleCommand(command: string) {
+  // 两个跳转命令：下拉菜单不依赖侧边栏，是"侧边栏没挂入口"的页面唯一的固定入口
+  if (command === 'profile') {
+    router.push('/profile')
+    return
+  }
+  if (command === 'membership') {
+    router.push('/membership')
+    return
+  }
   if (command === 'logout') {
     await authStore.logoutRemote()
     // 登出后回大厅并弹登录卡片：/login 整页路由已删，而且用户登出后最可能的

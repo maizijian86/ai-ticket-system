@@ -13,10 +13,20 @@
 /** 新用户注册赠送次数（与后端 AiQuotaService.SIGNUP_BONUS_CREDITS 一致）。 */
 export const SIGNUP_BONUS_CREDITS = 5
 
-/** 会员每期发放次数。会员功能尚未实现，这里先用作文案占位。 */
+/**
+ * 会员每期发放次数 / 有效期天数 —— **只用于文案**。
+ *
+ * 会员功能已实现（2026-10-09），真正的定价与权益在**后端**
+ * `ticket-service/.../enums/MembershipPlan.java`，会员页的价格与次数一律从
+ * `GET /api/v1/membership/plans` 现取。这两个常量只留给"还没拿到后端数据就要
+ * 说一句话"的地方（如详情页额度不足的提示）。
+ *
+ * 所以它们与后端**不是**必须严格同步的关系 —— 但改了套餐就该顺手改这里，
+ * 否则提示语会写"开通会员可获得 30 次"而实际发放 50 次。
+ */
 export const MEMBERSHIP_CREDITS = 30
 
-/** 会员有效期天数。 */
+/** 会员有效期天数。同上，仅文案用。 */
 export const MEMBERSHIP_DAYS = 30
 
 /** 活动横幅 / 登录卡片上的主文案，多处复用同一份。 */

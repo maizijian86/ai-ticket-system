@@ -48,6 +48,7 @@
 <script setup lang="ts">
 import { ref, reactive, onMounted } from 'vue'
 import { userApi } from '@/api'
+import { getRoleLabel, getRoleType } from '@/utils/role-labels'
 import type { UserDTO } from '@/types'
 
 const users = ref<UserDTO[]>([])
@@ -74,34 +75,10 @@ function formatDate(date?: string) {
   return date ? new Date(date).toLocaleString('zh-CN') : '-'
 }
 
-/*
- * 两个 map 都曾经只有 ADMIN / USER —— 后端加了 HANDLER 之后没跟上，于是那些行在
- * 页面上显示成英文原文 "HANDLER" 配一个灰标签。四个值现在都在这里，别再漏。
- *
- * 保留 `|| 'info'` / `|| role` 的兜底：库里 role 是 VARCHAR(20) 不是 MySQL ENUM，
- * 出现枚举外的值时应该显示原文而不是渲染成空白。
- */
-function getRoleType(role: string) {
-  const map: Record<string, string> = {
-    ADMIN: 'danger',
-    PUBLISHER: 'success',
-    HANDLER: 'warning',
-    USER: 'primary'
-  }
-  return map[role] || 'info'
-}
-
-function getRoleLabel(role: string) {
-  const map: Record<string, string> = {
-    ADMIN: '管理员',
-    PUBLISHER: '发布者',
-    HANDLER: '接单者',
-    // 存量身份：发布与接单都能做。标签只写"用户"是因为这一列宽 100px，
-    // 带上括号说明会换行 —— 含义见 backend common/enums/Role.java 的 javadoc。
-    USER: '用户'
-  }
-  return map[role] || role
-}
+// 此处原有两个局部 map（getRoleType / getRoleLabel）。它们被提到
+// utils/role-labels.ts：个人主页的「账号信息」也要显示身份，抄一份必然漂移。
+// 这两个 map 曾经只有 ADMIN / USER —— 后端加了 HANDLER 之后没跟上，于是那些行在
+// 页面上显示成英文原文 "HANDLER" 配一个灰标签。
 
 onMounted(() => {
   loadUsers()

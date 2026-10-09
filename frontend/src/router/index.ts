@@ -85,6 +85,33 @@ const routes: RouteRecordRaw[] = [
         name: 'ProjectDetail',
         component: () => import('@/views/project/ProjectDetail.vue')
       },
+      // 会员与个人主页。
+      //
+      // 三条**都不写** meta.requiresAuth:false，也就是默认需要登录 —— 会员页要显示
+      // 自己的余额与到期日、结果页要查自己那笔单（后端按网关注入的身份校验归属，
+      // 未登录会 401），个人主页更不用说。让守卫拦下来顺便弹出登录卡片，
+      // 比放进去再各自处理 401 更省事。
+      //
+      // 代价：用户在结果页时 token 失效会被弹回大厅，丢掉那个 out_trade_no。
+      // 但订单本身在库里，个人主页的「我的订单」能再点回来，所以不补 redirect。
+      {
+        path: 'membership',
+        name: 'Membership',
+        component: () => import('@/views/membership/Membership.vue')
+      },
+      {
+        // 支付宝的 return_url 也指向这里（见 application.yml 的 alipay.return-url：
+        // http://localhost:3000/membership/result），单号由支付宝以 out_trade_no
+        // 追加在 query 上；页面对两种参数名都认。
+        path: 'membership/result',
+        name: 'MembershipResult',
+        component: () => import('@/views/membership/MembershipResult.vue')
+      },
+      {
+        path: 'profile',
+        name: 'Profile',
+        component: () => import('@/views/profile/Profile.vue')
+      },
       {
         path: 'admin/users',
         name: 'UserManage',
