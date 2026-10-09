@@ -400,9 +400,9 @@ CREATE TABLE project_discussion (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ==================== AI 辅助开发额度（ticket-service） ====================
--- 与实体 com.aiticket.ticket.entity.AiCreditBatch / AiUsage / UserMembership 一一对应。
--- ticket-service 是 ddl-auto: update，首次启动会自动建这三张表；这里留存一份 DDL 作为
--- 记录，也给已有的库做手工迁移用（见 db/migration.sql）。
+-- 与实体 com.aiticket.ticket.entity.AiCreditBatch / AiUsage / UserMembership / MembershipOrder
+-- 一一对应。ticket-service 是 ddl-auto: update，首次启动会自动建这四张表；这里留存一份
+-- DDL 作为记录，也给已有的库做手工迁移用（见 db/migration.sql）。
 
 -- 额度批次：一行 = 一次发放。注册赠送 / 会员发放 / 管理员调整都往这里插一行。
 -- 余额 = SUM(remaining_amount) where remaining_amount > 0 AND (expires_at IS NULL OR expires_at > NOW())
@@ -445,8 +445,8 @@ CREATE TABLE ai_usage (
     KEY idx_usage_batch (batch_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='AI额度使用流水';
 
--- 会员订阅：本次**只建表、不接任何接口**，方案见仓库根目录 会员额度plan.txt。
--- 会员身份记在这张表，次数记在 ai_credit_batch（source=MEMBERSHIP, expires_at=发放日+30天），
+-- 会员订阅：会员身份记在这张表，次数记在 ai_credit_batch（source=MEMBERSHIP,
+-- expires_at=发放日+30天），方案见仓库根目录 会员额度plan.txt。
 -- "到期没用完的次数作废"由批次的 expires_at 天然表达，不需要额外核销逻辑。
 CREATE TABLE user_membership (
     id              BIGINT      AUTO_INCREMENT PRIMARY KEY,
@@ -462,3 +462,33 @@ CREATE TABLE user_membership (
     deleted_at      DATETIME    DEFAULT NULL,
     KEY idx_membership_user (user_id, status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='会员订阅(本次仅建表)';
+
+-- 会员订单：一行 = 一次「开通会员」的支付单据。
+--
+-- 这张表是**业务单据**，支付宝那边的 trade_no 是**资金凭据**，两者不是一回事：
+-- 我们这边的单永远留着（谁在什么时候点了开通、该付多少、付没付），
+-- 支付宝那边的交易会超时关闭、记录会老。所以「会员有没有开通」一律只看这张表
+-- 与 user_membership，不看支付宝 —— trade_status 只用来驱动 PENDING → PAID 这一次跃迁。
+--
+-- 未支付的单也**必须**落库（不是"等支付成功再插"）：out_trade_no 要先有唯一键才谈得上
+-- 下单，防连点的复用逻辑要有行可查，对账要有单据。用户关掉支付页后那单留在这里、
+-- 由读路径按支付宝的查单结果改成 CLOSED；不提供「继续支付」，想付就重新下单，
+-- 于是「一个 out_trade_no 只对应一次支付尝试、作废后不重用」这条语义成立。
+CREATE TABLE membership_order (
+    id           BIGINT        AUTO_INCREMENT PRIMARY KEY,
+    user_id      BIGINT        NOT NULL COMMENT '下单账号',
+    plan_code    VARCHAR(32)   NOT NULL COMMENT '下单时的套餐，如 MONTHLY_30',
+    plan_credits INT           NOT NULL COMMENT '权益快照: 该套餐发放次数',
+    plan_days    INT           NOT NULL COMMENT '权益快照: 该套餐有效天数',
+    amount       DECIMAL(10,2) NOT NULL COMMENT '下单金额(元)',
+    pay_channel  VARCHAR(20)   NOT NULL COMMENT 'ALIPAY_SANDBOX',
+    out_trade_no VARCHAR(64)   NOT NULL COMMENT '商户订单号, 给支付宝的那个',
+    trade_no     VARCHAR(64)   DEFAULT NULL COMMENT '支付宝交易号, 回调里带回来',
+    status       VARCHAR(16)   NOT NULL COMMENT 'PENDING / PAID / CLOSED',
+    paid_at      DATETIME      DEFAULT NULL,
+    created_at   DATETIME      DEFAULT CURRENT_TIMESTAMP,
+    updated_at   DATETIME      DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at   DATETIME      DEFAULT NULL,
+    UNIQUE KEY uk_order_out_trade_no (out_trade_no),
+    KEY idx_order_user (user_id, status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='会员订单';

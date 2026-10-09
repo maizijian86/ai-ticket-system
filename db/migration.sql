@@ -75,3 +75,25 @@ CREATE TABLE IF NOT EXISTS user_membership (
     deleted_at      DATETIME    DEFAULT NULL,
     KEY idx_membership_user (user_id, status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='会员订阅(本次仅建表)';
+
+-- 会员订单：一行 = 一次「开通会员」的支付单据。DDL 与 db/schema.sql 末尾一致。
+-- uk_order_out_trade_no 是回调反查订单的依据，也是「一个单号只对应一次支付尝试」的兜底；
+-- idx_order_user 支撑「我的订单」列表（user_id + status）。
+CREATE TABLE IF NOT EXISTS membership_order (
+    id           BIGINT        AUTO_INCREMENT PRIMARY KEY,
+    user_id      BIGINT        NOT NULL COMMENT '下单账号',
+    plan_code    VARCHAR(32)   NOT NULL COMMENT '下单时的套餐，如 MONTHLY_30',
+    plan_credits INT           NOT NULL COMMENT '权益快照: 该套餐发放次数',
+    plan_days    INT           NOT NULL COMMENT '权益快照: 该套餐有效天数',
+    amount       DECIMAL(10,2) NOT NULL COMMENT '下单金额(元)',
+    pay_channel  VARCHAR(20)   NOT NULL COMMENT 'ALIPAY_SANDBOX',
+    out_trade_no VARCHAR(64)   NOT NULL COMMENT '商户订单号, 给支付宝的那个',
+    trade_no     VARCHAR(64)   DEFAULT NULL COMMENT '支付宝交易号, 回调里带回来',
+    status       VARCHAR(16)   NOT NULL COMMENT 'PENDING / PAID / CLOSED',
+    paid_at      DATETIME      DEFAULT NULL,
+    created_at   DATETIME      DEFAULT CURRENT_TIMESTAMP,
+    updated_at   DATETIME      DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at   DATETIME      DEFAULT NULL,
+    UNIQUE KEY uk_order_out_trade_no (out_trade_no),
+    KEY idx_order_user (user_id, status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='会员订单';
