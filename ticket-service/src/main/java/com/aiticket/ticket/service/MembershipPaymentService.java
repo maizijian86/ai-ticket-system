@@ -12,6 +12,8 @@ import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.Map;
+import java.util.TreeMap;
+import java.util.stream.Collectors;
 
 /**
  * 支付渠道的编排：处理支付宝回调、以及在读路径上做"查单兜底 + 惰性关闭"。
@@ -67,6 +69,17 @@ public class MembershipPaymentService {
      * 订单是靠 out_trade_no 找出来的，回调里也不需要用户身份。
      */
     public String handleAlipayNotify(Map<String, String> params) {
+        // 原始参数整条留档，两个理由：
+        //  1) 验签失败时这是**唯一**能复现的线索 —— 反代/网关改了参数、或者把「应用公钥」
+        //     当成「支付宝公钥」填了配置，光看一个 outTradeNo 是查不出来的；
+        //  2) 重放这笔回调（十.3 幂等、十.8 迟到的支付）必须**原样带全部参数**：签名覆盖了
+        //     除 sign/sign_type 之外的每一个字段，少一个、改一个都对不上。
+        // 打印成 k=v&… 的排序形式，就是为了能直接抄去当 form body 用。
+        // 故意**不**遮蔽 buyer_* 之类的字段：遮蔽了签名就重算不出来，留档也就失去意义。
+        log.info("支付宝回调原始参数: {}", new TreeMap<>(params).entrySet().stream()
+                .map(e -> e.getKey() + "=" + e.getValue())
+                .collect(Collectors.joining("&")));
+
         if (!alipayGateway.verifyNotify(params)) {
             // 验签失败最常见的两个原因：把「应用公钥」当成了「支付宝公钥」填进配置，
             // 或者网关/反代改动了参数。日志里能看到的只有这一条，没有更多线索。
