@@ -10,6 +10,7 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -59,6 +60,15 @@ public interface AiCreditBatchRepository extends JpaRepository<AiCreditBatch, Lo
     Optional<AiCreditBatch> findByIdForUpdate(@Param("id") Long id);
 
     boolean existsByBizKey(String bizKey);
+
+    /**
+     * 按幂等键批量取批次。
+     *
+     * <p>给会员订单用：订单的会员到期日不存订单表，而在发放出去的那个批次上
+     * （{@code biz_key = MEMBERSHIP:{orderId}}）。「我的订单」列表一次要显示 10 条订单，
+     * 逐条查会变成 N+1，所以按 biz_key 集合一次取回来。
+     */
+    List<AiCreditBatch> findByBizKeyIn(Collection<String> bizKeys);
 
     /**
      * 幂等发放：{@code biz_key} 上唯一键 + {@code INSERT IGNORE}，重复发放静默跳过。
