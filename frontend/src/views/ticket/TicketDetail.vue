@@ -276,6 +276,26 @@
                       </div>
                       <div class="message-content">{{ msg.content }}</div>
                     </div>
+                    <!--
+                      等待回复时的骨架条。模型的响应以十秒计，没有它用户分不清
+                      "在等"和"没反应"—— 而且这条气泡占着位置，回复到达时是替换而不是
+                      凭空多出一条，视觉上不跳。
+                    -->
+                    <div
+                      v-if="aiChatLoading"
+                      class="ai-chat-message assistant shimmer-message"
+                      role="status"
+                      aria-label="AI 正在回复"
+                    >
+                      <div class="message-avatar">
+                        <el-icon><MagicStick /></el-icon>
+                      </div>
+                      <div class="message-content shimmer-bubble">
+                        <span class="shimmer-line" style="width: 86%"></span>
+                        <span class="shimmer-line" style="width: 64%"></span>
+                        <span class="shimmer-line" style="width: 42%"></span>
+                      </div>
+                    </div>
                     <div v-if="aiChatMessages.length === 0" class="empty-chat">
                       <p>我是AI开发助手，可以帮你解答项目开发相关的问题</p>
                       <p>例如：这个项目应该怎么设计数据库？</p>
@@ -285,7 +305,7 @@
                     <el-input
                       v-model="aiChatInput"
                       placeholder="输入你的问题... (Enter发送)"
-                      @keydown.enter="handleAiChat"
+                      @keyup.enter="handleAiChat"
                       :disabled="chatInputDisabled"
                     />
                     <el-button
@@ -927,8 +947,13 @@ async function handleDownloadPrd() {
  * 所以确认框只在"这一格还没付过"时弹：已付过还每次弹一次，用户会以为每条消息都在扣费。
  * 反过来，如果同组的 AI 分析先付过了，这里的 chatUnlocked 也是 true —— 不需要再花钱，
  * 也就不该弹框，这正是"谁先用谁扣、另一个免费"在前端的落点。
+ *
+ * @param ev 键盘事件（点按钮时是 MouseEvent，上面没有 isComposing，取到 undefined 即没在组字）
  */
-async function handleAiChat() {
+async function handleAiChat(ev?: Event) {
+  // 中文输入法组字期间的回车是"选中候选词"，不是"发送"。不挡掉的话，打一半拼音
+  // 按回车选词就会把那串拼音发出去 —— 这是中文用户必然会踩到的一次。
+  if (ev && (ev as KeyboardEvent).isComposing) return
   if (!ticket.value || !aiChatInput.value.trim() || aiChatLoading.value) return
 
   if (!chatUnlocked.value) {
@@ -940,19 +965,19 @@ async function handleAiChat() {
   aiChatMessages.value.push({ role: 'user', content: userMessage })
   aiChatInput.value = ''
   aiChatLoading.value = true
+  // 自己那条 + 骨架条都要立刻可见。回复要等十几秒，不滚的话用户在自己的消息
+  // 都还没进视野的时候就开始等，会以为没发出去。
+  await scrollAiChatToBottom()
 
   try {
     const response = await ticketApi.aiChat(ticket.value.id, userMessage)
     aiChatMessages.value.push({ role: 'assistant', content: response.content })
-    await nextTick()
-    if (aiChatMessagesRef.value) {
-      aiChatMessagesRef.value.scrollTop = aiChatMessagesRef.value.scrollHeight
-    }
+    await scrollAiChatToBottom()
     // 解锁这一步改变了 quota.chat（AVAILABLE → USED），横幅、按钮文案、
     // 剩余次数徽标都得跟着更新
     if (!chatUnlocked.value) await loadAiUsage()
-  } catch (e) {
-    if (isAxiosError(e)) {
+  } catch (err) {
+    if (isAxiosError(err)) {
       ElMessage.error('AI 回复失败，请稍后重试')
     } else {
       // 业务错误（未解锁 / 额度不足 / 不是接单人）：撤掉那条永远不会有回答的气泡，
@@ -962,6 +987,14 @@ async function handleAiChat() {
     }
   } finally {
     aiChatLoading.value = false
+  }
+}
+
+/** 消息区滚到底。骨架条出现与回复到达都要各调一次（两者都在 DOM 更新之后） */
+async function scrollAiChatToBottom() {
+  await nextTick()
+  if (aiChatMessagesRef.value) {
+    aiChatMessagesRef.value.scrollTop = aiChatMessagesRef.value.scrollHeight
   }
 }
 
@@ -1294,6 +1327,49 @@ onMounted(() => {
   text-align: center;
   color: var(--text-tertiary);
   padding: 32px;
+}
+
+/*
+  等待回复时的骨架条。高光用 --glass-bg → --glass-bg-active 这一对既有变量，
+  不写死颜色，深浅主题都不用另配。
+*/
+.shimmer-bubble {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 200px;
+  /* 底色交给里面的横杠，自己不要 —— 灰杠浮在灰底上就看不出是骨架了 */
+  background: transparent;
+}
+
+.shimmer-line {
+  display: block;
+  height: 12px;
+  border-radius: 6px;
+  background: linear-gradient(
+    90deg,
+    var(--glass-bg) 25%,
+    var(--glass-bg-active) 37%,
+    var(--glass-bg) 63%
+  );
+  background-size: 400% 100%;
+  animation: ai-chat-shimmer 1.4s ease-in-out infinite;
+}
+
+@keyframes ai-chat-shimmer {
+  from {
+    background-position: 100% 50%;
+  }
+  to {
+    background-position: 0 50%;
+  }
+}
+
+/* 系统开了"减少动态效果"就只留静态横杠：这时候一条一直在扫的光比没有还烦 */
+@media (prefers-reduced-motion: reduce) {
+  .shimmer-line {
+    animation: none;
+  }
 }
 
 .empty-chat p {
