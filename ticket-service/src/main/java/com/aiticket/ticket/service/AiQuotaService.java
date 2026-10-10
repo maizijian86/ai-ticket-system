@@ -30,6 +30,11 @@ import java.util.List;
  *
  * <p>这些方法必须是**独立 bean 上的 public 方法**：如果把它们挪进调用方类里当成私有
  * 方法调用，Spring 的事务代理不生效，{@code @Transactional} 形同虚设、预占就没有原子性。
+ *
+ * <p><b>一张工单花两次</b>：{@link AiFeature#ANALYSIS} 与 {@link AiFeature#CHAT} 是
+ * 同一个槽位（谁先用谁扣，另一个免费），{@link AiFeature#PRD} 独立一格。所以本类里
+ * 凡是"读状态 / 查是否用过 / 占位前先探一眼"，都必须按 {@link #groupOf} 返回的**整组**
+ * 来做 —— 只查单个 feature 会让历史 CHAT 行变成看不见的僵尸，或者并发下把同一对扣两次。
  */
 @Slf4j
 @Service
@@ -132,7 +137,8 @@ public class AiQuotaService {
     }
 
     /**
-     * 某张工单上三个功能各自的状态 + 我的账户余额，给前端渲染遮罩/按钮用。
+     * 某张工单上两个槽位（"分析与对话" / "PRD"）各自的状态 + 我的账户余额，给前端渲染
+     * 遮罩/按钮用。
      *
      * @param handlerId 该工单的接单人 id（由调用方查好传进来，避免本类反向依赖 TicketService）
      */
@@ -154,22 +160,36 @@ public class AiQuotaService {
         Balance balance = getBalance(userId);
         List<AiUsage> slots = usageRepository.findByTicketIdAndActiveSlot(ticketId, ACTIVE_SLOT);
 
+        // 分析与对话共用一格，所以这两项**必然相等**（前端靠它决定弹不弹确认框、
+        // 按钮能不能按）。两个值一旦不同，用户就会看到"分析说用过了、对话说没解锁"
+        // 这种自相矛盾的状态，所以只能有一个来源。
+        AiFeatureState pairState = stateOf(slots, AiFeature.ANALYSIS);
+
         return AiQuotaStatusDTO.builder()
                 .balance(balance.remaining())
                 .nextExpireAt(balance.nextExpireAt())
                 .isHandler(true)
-                .analysis(stateOf(slots, AiFeature.ANALYSIS))
+                .analysis(pairState)
                 .prd(stateOf(slots, AiFeature.PRD))
-                .chat(stateOf(slots, AiFeature.CHAT))
+                .chat(pairState)
                 .build();
     }
 
-    /** AI 对话是否已解锁。存在的 SUCCESS 占位行就是解锁凭证 */
+    /**
+     * 这张工单上该功能所在的**整组**槽位，是否已经被成功消耗过。
+     *
+     * <p>分析/对话传哪一个都得到同一个答案（它们是同一格）。调用方靠它决定"能不能跳过
+     * 额度门禁直接跑"——合并之后，被同组另一个功能先付过的那一半是**免费**的，
+     * 再走一遍 {@link #reserve} 只会撞 409。
+     *
+     * <p>只认 SUCCESS：RESERVED（同组的另一半正在跑）不算用过了，那种情况应当被
+     * {@link #reserve} 以 409"正在处理中"挡下，而不是放行后扣第二次钱。
+     */
     @Transactional(readOnly = true)
-    public boolean isChatUnlocked(Long ticketId) {
-        return usageRepository.findByTicketIdAndFeatureAndActiveSlot(ticketId, AiFeature.CHAT, ACTIVE_SLOT)
-                .map(usage -> usage.getStatus() == AiUsageStatus.SUCCESS)
-                .orElse(false);
+    public boolean isSpent(Long ticketId, AiFeature feature) {
+        List<AiUsage> slots = usageRepository.findByTicketIdAndActiveSlot(ticketId, ACTIVE_SLOT);
+        return groupOf(feature).stream().anyMatch(f -> slots.stream()
+                .anyMatch(usage -> usage.getFeature() == f && usage.getStatus() == AiUsageStatus.SUCCESS));
     }
 
     /**
@@ -208,25 +228,37 @@ public class AiQuotaService {
     public AiUsage reserve(Long ticketId, Long userId, AiFeature feature) {
         ensureRegisterGrant(userId);
 
-        // 先把"进程崩在半路"留下的僵尸占位收掉。放在这里是为了三个功能自动都受益 ——
-        // 若放到控制器里，就得写三遍，且以后新增功能很容易漏掉。回收与随后的插入同事务，
+        // 合并组（分析与对话）必须**成对**地看和清：只处理自己那一个 feature 的话，
+        // 库里历史留下的 CHAT 行就成了看不见的僵尸 —— 查不到它，可它确实扣过一次钱。
+        List<AiFeature> group = groupOf(feature);
+
+        // 先把"进程崩在半路"留下的僵尸占位收掉。放在这里是为了各功能自动都受益 ——
+        // 若放到控制器里，就得逐个写，且以后新增功能很容易漏掉。回收与随后的插入同事务，
         // 所以"回收 → 插入"中间不会被其它请求插队。
-        reclaimIfStale(ticketId, feature);
+        group.forEach(f -> reclaimIfStale(ticketId, f));
 
         // 先读一次，只是为了给出精确的理由（"用过了"和"正在处理中"该说不同的话）。
-        // 这不是权威判定 —— 并发时这里读不到对方尚未提交的行，权威在下面的唯一键插入。
-        usageRepository.findByTicketIdAndFeatureAndActiveSlot(ticketId, feature, ACTIVE_SLOT)
-                .ifPresent(existing -> {
-                    throw new BusinessException(409,
-                            existing.getStatus() == AiUsageStatus.RESERVED
-                                    ? "该功能正在处理中，请勿重复提交"
-                                    : "该工单的「" + label(feature) + "」已经用过了");
-                });
+        // 这**不是**权威判定 —— 并发时这里读不到对方尚未提交的行，权威在下面的唯一键
+        // 插入。合并组共用同一个 feature 记账，所以那次插入真能挡住同组的另一个功能；
+        // 这也正是这一对必须写在一行上、而不能各写一行（各写一行唯一键挡不住谁）的原因。
+        for (AiFeature f : group) {
+            usageRepository.findByTicketIdAndFeatureAndActiveSlot(ticketId, f, ACTIVE_SLOT)
+                    .ifPresent(existing -> {
+                        throw new BusinessException(409,
+                                existing.getStatus() == AiUsageStatus.RESERVED
+                                        ? "「" + label(f) + "」正在处理中，请稍候再试"
+                                        : "该工单的「" + label(f) + "」已经用过了");
+                    });
+        }
+
+        // 落到实处的是**这一组共用的那个记账位**，不是调用方递进来的 feature：
+        // 分析/对话谁先来都记在 ANALYSIS 上，唯一键才有意义。调用方传 CHAT 也能正确记账。
+        AiFeature slot = group.get(0);
 
         AiUsage usage = new AiUsage();
         usage.setTicketId(ticketId);
         usage.setUserId(userId);
-        usage.setFeature(feature);
+        usage.setFeature(slot);
         usage.setStatus(AiUsageStatus.RESERVED);
         usage.setActiveSlot(ACTIVE_SLOT);
         usage.setAmount(1);
@@ -234,7 +266,7 @@ public class AiQuotaService {
             // 必须立刻 flush：唯一键冲突要在这个事务里暴露出来，而不是等到提交时才炸
             usageRepository.saveAndFlush(usage);
         } catch (DataIntegrityViolationException e) {
-            throw new BusinessException(409, "该功能正在处理中，请勿重复提交");
+            throw new BusinessException(409, "「" + label(slot) + "」正在处理中，请稍候再试");
         }
 
         List<AiCreditBatch> batches = batchRepository.lockUsable(userId, LocalDateTime.now());
@@ -256,7 +288,7 @@ public class AiQuotaService {
         usage.setBatchId(picked.getId());
         usageRepository.save(usage);
         log.info("AI额度预占: usageId={}, ticketId={}, userId={}, feature={}, batchId={}, 剩余={}",
-                usage.getId(), ticketId, userId, feature, picked.getId(), picked.getRemainingAmount());
+                usage.getId(), ticketId, userId, slot, picked.getId(), picked.getRemainingAmount());
         return usage;
     }
 
@@ -306,13 +338,39 @@ public class AiQuotaService {
     // ==================== 内部小工具 ====================
 
     private AiFeatureState stateOf(List<AiUsage> slots, AiFeature feature) {
-        return slots.stream()
-                .filter(usage -> usage.getFeature() == feature)
-                .findFirst()
-                .map(usage -> usage.getStatus() == AiUsageStatus.RESERVED
-                        ? AiFeatureState.IN_PROGRESS
-                        : AiFeatureState.USED)
-                .orElse(AiFeatureState.AVAILABLE);
+        boolean inProgress = false;
+        boolean used = false;
+        for (AiFeature f : groupOf(feature)) {
+            AiUsage usage = slots.stream()
+                    .filter(u -> u.getFeature() == f)
+                    .findFirst().orElse(null);
+            if (usage == null) {
+                continue;
+            }
+            if (usage.getStatus() == AiUsageStatus.RESERVED) {
+                inProgress = true;
+            } else {
+                used = true;
+            }
+        }
+        // IN_PROGRESS 优先于 USED：同组里"有一半正在跑"必须先把重复提交挡住，
+        // 报"已用过"会让用户以为钱花了却什么都没发生。
+        if (inProgress) {
+            return AiFeatureState.IN_PROGRESS;
+        }
+        return used ? AiFeatureState.USED : AiFeatureState.AVAILABLE;
+    }
+
+    /**
+     * 该 feature 所在的槽位组。分析与对话是**同一格**，PRD 自己一格。
+     *
+     * <p>组的第一个元素就是这一组的记账位（{@link #reserve} 写库时用它的下标 0）。
+     * 读取、探测、回收都必须按整组来，否则历史 CHAT 行会变成看不见的僵尸。
+     */
+    private static List<AiFeature> groupOf(AiFeature feature) {
+        return feature == AiFeature.PRD
+                ? List.of(AiFeature.PRD)
+                : List.of(AiFeature.ANALYSIS, AiFeature.CHAT);
     }
 
     /** NULL 表示永久有效，视为"最晚到期" —— 会员那种会过期的批次要排在它前面先花掉。 */
@@ -333,9 +391,10 @@ public class AiQuotaService {
     /** 给用户看的名字。前端 tab 上的措辞与这里保持一致 */
     private static String label(AiFeature feature) {
         return switch (feature) {
-            case ANALYSIS -> "AI 分析";
+            // 合并之后这一格代表分析与对话两件事，措辞必须一起说，
+            // 否则用户点对话撞到这条提示会以为自己"没用过分析"却被告知分析用过了。
+            case ANALYSIS, CHAT -> "AI 分析与对话";
             case PRD -> "PRD 生成";
-            case CHAT -> "AI 对话";
         };
     }
 }

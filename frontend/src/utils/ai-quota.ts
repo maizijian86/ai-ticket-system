@@ -32,7 +32,12 @@ export const MEMBERSHIP_DAYS = 30
 /** 活动横幅 / 登录卡片上的主文案，多处复用同一份。 */
 export const SIGNUP_PROMO_TITLE = `注册即送 ${SIGNUP_BONUS_CREDITS} 次 AI 辅助开发额度`
 
-/** AI 卡片上的功能名，与后端 AiQuotaService.label() 的措辞对齐。 */
+/**
+ * AI 卡片上的功能名，与后端 AiQuotaService.label() 的措辞对齐。
+ *
+ * ⚠️ 这三个是**用户看到的按钮名**，不是计费槽位的名字：{@code ANALYSIS} 与 {@code CHAT}
+ * 共用一次消耗（谁先用谁扣），所以别拿这两个常量去表达"花了两次"。
+ */
 export const AI_FEATURE_LABELS = {
   ANALYSIS: 'AI 分析',
   PRD: 'PRD 生成',
@@ -47,9 +52,15 @@ export function formatExpireDate(value?: string | null): string {
   return value.slice(0, 10)
 }
 
-/** 消耗确认框的正文，把"要花几次、还剩几次、什么时候过期"一次说清。 */
-export function buildConsumeConfirmText(featureLabel: string, balance: number, nextExpireAt?: string | null): string {
+/**
+ * 消耗确认框的正文，把"要花几次、还剩几次、什么时候过期"一次说清。
+ *
+ * @param note 额外要交代的一句话（如"分析与对话共用这 1 次"）。放在金额后面、
+ *             问句前面 —— 用户要先知道这笔钱买到什么，再决定按不按。
+ */
+export function buildConsumeConfirmText(featureLabel: string, balance: number, nextExpireAt?: string | null,
+                                        note = ''): string {
   const expire = formatExpireDate(nextExpireAt)
   const tail = expire ? `，最近一批 ${expire} 过期` : ''
-  return `本次将消耗 1 次 AI 辅助开发额度（当前剩余 ${balance} 次${tail}）。确认使用「${featureLabel}」？`
+  return `本次将消耗 1 次 AI 辅助开发额度（当前剩余 ${balance} 次${tail}）。${note}确认使用「${featureLabel}」？`
 }

@@ -231,6 +231,11 @@ public class TicketController {
      * <p>成功判据是"两个都拿到了"。此前这里对两次调用各自 try/catch，失败就写一句
      * "×××分析失败，请稍后重试"再照常保存、返回 200 —— 接入额度后那样的行为等于
      * "扣了费只给半个结果，且用户没有第二次机会"。现在任一失败即整体失败并退款。
+     *
+     * <p><b>分析与对话共用一次消耗</b>（2026-10-10 定的）：同组的另一半先花掉那一次之后，
+     * 这里**不再扣费**、也不必再进额度门禁 —— 进去了只会撞 409"已经用过了"。
+     * 免费那一半仍然只允许生成一次，判据是工单上还没有内容；否则反复调这个接口就是
+     * 拿它当免费的模型入口，额度体系也就白设了。
      */
     @PostMapping("/{id}/ai-analysis")
     public Result<TicketDTO> analyzeTicket(@PathVariable Long id,
@@ -239,17 +244,33 @@ public class TicketController {
         Ticket ticket = ticketService.requireHandlerTicket(id, userId, "使用 AI 辅助开发");
         String projectInfo = buildProjectInfo(ticket);
 
-        AiAnalysisResult result = quotaGate.run(id, userId, AiFeature.ANALYSIS, () -> {
-            String techSuggestion = ticketAiService.analyzeTechStack(
-                    memoryManager.techStackScope(id), projectInfo);
-            String taskBreakdown = ticketAiService.decomposeTasks(
-                    memoryManager.taskBreakdownScope(id), projectInfo);
-            return new AiAnalysisResult(techSuggestion, taskBreakdown);
-        });
+        AiAnalysisResult result;
+        if (quotaService.isSpent(id, AiFeature.ANALYSIS)) {
+            if (hasText(ticket.getAiTechSuggestion()) && hasText(ticket.getAiTaskBreakdown())) {
+                throw new BusinessException(409, "该工单的 AI 分析已经生成过了");
+            }
+            log.info("分析与对话共用一次额度，本次分析不再扣费: ticketId={}", id);
+            result = callAnalysis(id, projectInfo);
+        } else {
+            result = quotaGate.run(id, userId, AiFeature.ANALYSIS, () -> callAnalysis(id, projectInfo));
+        }
 
         TicketDTO dto = ticketService.saveAiAnalysis(id, result.techSuggestion(), result.taskBreakdown());
         log.info("AI分析完成: {}", id);
         return Result.success(dto);
+    }
+
+    /** 真正喂给模型的那两次调用。抽出来是因为"扣费"和"同组已付过"两条路都要调同一段。 */
+    private AiAnalysisResult callAnalysis(Long id, String projectInfo) {
+        String techSuggestion = ticketAiService.analyzeTechStack(
+                memoryManager.techStackScope(id), projectInfo);
+        String taskBreakdown = ticketAiService.decomposeTasks(
+                memoryManager.taskBreakdownScope(id), projectInfo);
+        return new AiAnalysisResult(techSuggestion, taskBreakdown);
+    }
+
+    private static boolean hasText(String s) {
+        return s != null && !s.isBlank();
     }
 
     /** AI 分析一次产出的两条内容。用 record 只是为了在 lambda 里传两个值。 */
@@ -359,10 +380,13 @@ public class TicketController {
     /**
      * AI 开发助手聊天 —— 带上下文记忆，接单人可针对当前工单持续提问。
      *
-     * <p>计费语义：**首条消息消耗 1 次额度解锁本工单的 AI 对话，之后多轮对话不再扣费、
-     * 也不计条数**。解锁凭证就是 {@code ai_usage} 里那一行
-     * {@code (ticket_id, feature=CHAT, status=SUCCESS)} —— 它存在就说明解锁过了。
-     * 所以这里只有"还没解锁"的那一条消息会经过 {@link AiQuotaGate}。
+     * <p>计费语义：**首条消息消耗 1 次额度解锁「AI 分析与对话」这一格，之后多轮对话不再
+     * 扣费、也不计条数**。解锁凭证就是 {@code ai_usage} 里那一行
+     * {@code (ticket_id, feature=ANALYSIS, status=SUCCESS)} —— 它存在就说明这一格付过了。
+     * 所以这里只有"还没付过"的那一条消息会经过 {@link AiQuotaGate}。
+     *
+     * <p>记在 {@code ANALYSIS} 上而不是 {@code CHAT} 上，是这两个功能共用一次消耗的必然
+     * 结果：记在各自名下就成了两条唯一键，谁也挡不住谁，并发下会被扣成两次。
      *
      * <p>原实现有 {@code userId == null → 1L} 的兜底，且完全不校验调用者是谁 ——
      * 任何人都能拿任意工单的上下文白嫖模型。已删除。
@@ -380,14 +404,15 @@ public class TicketController {
 
         String context = "当前项目信息：\n" + buildProjectInfo(ticket) + "\n用户问题: " + userMessage;
 
-        // AI 调用（带上下文记忆）。已解锁则不再经过额度门禁 —— 一次付费，本工单内畅聊。
-        boolean unlocked = quotaService.isChatUnlocked(id);
+        // AI 调用（带上下文记忆）。这一格付过了就不再经过额度门禁 —— 一次付费，
+        // 本工单内畅聊；同组的 AI 分析也是同一个道理，它那边少扣的那一次由这条消息付掉了。
+        boolean paid = quotaService.isSpent(id, AiFeature.ANALYSIS);
         String aiResponse;
-        if (unlocked) {
+        if (paid) {
             aiResponse = ticketAiService.chatWithDeveloper(memoryManager.chatScope(id), context);
         } else {
-            log.info("AI聊天首次解锁: ticketId={}, userId={}", id, userId);
-            aiResponse = quotaGate.run(id, userId, AiFeature.CHAT,
+            log.info("AI聊天首次解锁(与AI分析共用一次额度): ticketId={}, userId={}", id, userId);
+            aiResponse = quotaGate.run(id, userId, AiFeature.ANALYSIS,
                     () -> ticketAiService.chatWithDeveloper(memoryManager.chatScope(id), context));
         }
 

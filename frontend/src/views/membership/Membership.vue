@@ -62,7 +62,7 @@
     <div class="glass-card-static benefits-card">
       <div class="benefits-title">权益说明</div>
       <ul class="benefits-list">
-        <li>额度记在<strong>账户</strong>上，不按工单分配；一张工单上「AI 分析 / PRD 生成 / AI 对话」各消耗 1 次。</li>
+        <li>额度记在<strong>账户</strong>上，不按工单分配；一张工单最多消耗 2 次 ——「AI 分析」与「AI 对话」合并计一次（谁先用谁扣），「PRD 生成」另计一次。</li>
         <li>到期后<strong>没用完的次数跟着作废</strong>，不能攒、不能顺延到下一期。</li>
         <li>会员未到期时再买一期，新周期从旧的到期日往后接，不会白扔剩余天数。</li>
         <li>购买后即时到账。已支付的订单不支持退款（会员是虚拟权益）。</li>

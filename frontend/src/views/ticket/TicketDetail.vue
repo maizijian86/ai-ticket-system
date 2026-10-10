@@ -312,14 +312,17 @@
                   @action="authStore.openAuthCard('login')"
                 />
                 <div v-else class="empty-content">
-                  <p v-if="analysisState === 'USED'" class="used-note">
-                    这个功能已经用过了，但当时没有保存下内容。每张工单只能使用一次，如需重做请联系管理员。
-                  </p>
-                  <p v-else class="credit-hint">{{ creditHint }}</p>
+                  <!--
+                    走到这里 = 还没内容。两种开销状态说法不同：
+                      · pairPaid：同组的另一半（很可能是 AI 对话）已经把这 1 次花掉了，
+                        这次生成免费 —— 所以按钮**照旧可点**，也不需要余额。
+                      · 否则：这次要花 1 次，余额不够就不给按。
+                  -->
+                  <p class="credit-hint">{{ pairPaid ? pairPaidHint : creditHint }}</p>
                   <el-button
                     type="primary"
                     :loading="analyzing"
-                    :disabled="analyzing || analysisState !== 'AVAILABLE' || !canAfford"
+                    :disabled="analyzing || analysisState === 'IN_PROGRESS' || (!pairPaid && !canAfford)"
                     @click="handleAiAnalysis"
                     class="btn-glass"
                   >
@@ -341,14 +344,17 @@
                   @action="authStore.openAuthCard('login')"
                 />
                 <div v-else class="empty-content">
-                  <p v-if="analysisState === 'USED'" class="used-note">
-                    这个功能已经用过了，但当时没有保存下内容。每张工单只能使用一次，如需重做请联系管理员。
-                  </p>
-                  <p v-else class="credit-hint">{{ creditHint }}</p>
+                  <!--
+                    走到这里 = 还没内容。两种开销状态说法不同：
+                      · pairPaid：同组的另一半（很可能是 AI 对话）已经把这 1 次花掉了，
+                        这次生成免费 —— 所以按钮**照旧可点**，也不需要余额。
+                      · 否则：这次要花 1 次，余额不够就不给按。
+                  -->
+                  <p class="credit-hint">{{ pairPaid ? pairPaidHint : creditHint }}</p>
                   <el-button
                     type="primary"
                     :loading="analyzing"
-                    :disabled="analyzing || analysisState !== 'AVAILABLE' || !canAfford"
+                    :disabled="analyzing || analysisState === 'IN_PROGRESS' || (!pairPaid && !canAfford)"
                     @click="handleAiAnalysis"
                     class="btn-glass"
                   >
@@ -520,7 +526,20 @@ async function loadAiUsage() {
 /** 各功能状态。quota 未就绪时一律按 NOT_HANDLER 处理，宁可少露按钮也不多露。 */
 const analysisState = computed<AiFeatureState>(() => quota.value?.analysis ?? 'NOT_HANDLER')
 const chatState = computed<AiFeatureState>(() => quota.value?.chat ?? 'NOT_HANDLER')
-const chatUnlocked = computed(() => chatState.value === 'USED')
+
+/**
+ * "AI 分析与对话"这一格是否已经付过。后端把这一格的同一次消耗同时记在 analysis 与
+ * chat 两个字段上，所以两者必然相等；这里用 `||` 而不是取其一，是免得以后谁只改了
+ * 一边就悄悄改变了判定。
+ *
+ * ⚠️ **USED 不等于"不能用了"**。合并之后它只说明这一格的开销已经结清：两个功能谁
+ * 还没产出过内容，谁就能再跑一次、不再扣费。所以它决定的是"要不要弹确认框、还要不要
+ * 余额"，不是"按钮能不能按"——判断能否运行要看具体那个功能有没有内容，见模板。
+ */
+const pairPaid = computed(() => analysisState.value === 'USED' || chatState.value === 'USED')
+
+/** AI 对话能不能直接发。这一格付过了就解锁了，与余额无关 */
+const chatUnlocked = pairPaid
 
 const prdState = computed<AiFeatureState>(() => quota.value?.prd ?? 'NOT_HANDLER')
 
@@ -560,14 +579,14 @@ const analysisMask = computed(() => {
       title: '接单后可用',
       detail: ticket.value?.handlerId
         ? '本工单已由其他开发者接单。AI 辅助开发只对这张工单的接单人开放。'
-        : '本工单还没有接单人。接单之后，这三个 AI 功能就会对你开放。',
+        : '本工单还没有接单人。接单之后，AI 辅助开发就会对你开放。',
       actionText: ''
     }
   }
   return null
 })
 
-/** 生成一次消耗多少、还剩多少 —— 按钮上方那行小字 */
+/** 生成一次消耗多少、还剩多少 —— 按钮上方那行小字（只在**这一格还没付过**时显示） */
 const creditHint = computed(() => {
   if (!quota.value?.isHandler) return ''
   if (analysisState.value === 'IN_PROGRESS') return '上一次调用还在进行中，请稍候…'
@@ -575,8 +594,16 @@ const creditHint = computed(() => {
     return `额度不足。开通会员可获得 ${MEMBERSHIP_CREDITS} 次（${MEMBERSHIP_DAYS} 天有效）`
   }
   const expire = formatExpireDate(quota.value.nextExpireAt)
-  return `每张工单每个功能只能用一次，本次消耗 1 次（剩余 ${quota.value.balance} 次${expire ? `，最近 ${expire} 过期` : ''}）`
+  return `AI 分析与 AI 对话合并计一次，PRD 另计一次，每张工单共 2 次。本次消耗 1 次（剩余 ${quota.value.balance} 次${expire ? `，最近 ${expire} 过期` : ''}）`
 })
+
+/**
+ * 这一格已经付过、但内容还没生成时显示的那句话。
+ *
+ * 只在"分析与对话"这一格用得上：同组的另一半先把这 1 次花掉了，所以这次生成免费。
+ * PRD 是独立一格，不存在这种状态（它没内容就是没生成过）。
+ */
+const pairPaidHint = 'AI 分析与 AI 对话合并计一次，这一次已经付过了，本次生成不再消耗额度。'
 
 /** AI 对话输入框能不能打字：访客与非接单人都不能，接单人（未解锁也行）可以 */
 const chatInputDisabled = computed(() => {
@@ -590,7 +617,7 @@ const chatInputDisabled = computed(() => {
 /** 聊天 tab 用不了时的遮罩 */
 const chatLocked = computed(() => {
   if (!authStore.token) {
-    return { title: '登录后可用', detail: '登录并接单后，可以用 1 次额度解锁本工单的 AI 对话。', actionText: '去登录' }
+    return { title: '登录后可用', detail: '登录并接单后，可以用 1 次额度解锁本工单的 AI 对话与 AI 分析。', actionText: '去登录' }
   }
   if (!quota.value) {
     return { title: '正在加载额度信息…', detail: '', actionText: '' }
@@ -612,7 +639,8 @@ const chatLocked = computed(() => {
 
 /**
  * 聊天框顶部的状态横幅。只在有必要解释的时候出现，避免变成一个常驻的说明条。
- *   未解锁 → 说清"第一条消息要花 1 次，之后免费"
+ *   未解锁 → 说清"第一条消息要花 1 次，之后免费"，并且要说清它顺手解锁了 AI 分析
+ *            （用户按的是一次，不该事后才发现还白得了另一件东西，也不该以为花了两次）
  *   解锁了但余额为 0 → 给会员预期（已解锁的对话不受余额影响，所以只是提示）
  */
 const chatBanner = computed(() => {
@@ -623,16 +651,20 @@ const chatBanner = computed(() => {
       return {
         type: 'no-credit',
         icon: Warning,
-        text: `额度不足，无法解锁 AI 对话。开通会员可获得 ${MEMBERSHIP_CREDITS} 次（${MEMBERSHIP_DAYS} 天有效）。`
+        text: `额度不足，无法解锁「AI 分析与对话」。开通会员可获得 ${MEMBERSHIP_CREDITS} 次（${MEMBERSHIP_DAYS} 天有效）。`
       }
     }
     return {
       type: 'info',
       icon: InfoFilled,
-      text: `本工单的 AI 对话尚未解锁：发送第一条消息将消耗 1 次额度，解锁后本工单内可无限对话。`
+      text: `本工单的「AI 分析与对话」尚未解锁：发送第一条消息将消耗 1 次额度，之后本工单内可无限对话，AI 分析也一并可用（这一对共用这 1 次）。`
     }
   }
-  return { type: 'unlocked', icon: Check, text: 'AI 对话已解锁，本工单内可无限提问，不再消耗额度。' }
+  return {
+    type: 'unlocked',
+    icon: Check,
+    text: '「AI 分析与对话」已解锁（两者共用这 1 次额度），本工单内可无限提问，不再消耗额度。'
+  }
 })
 
 // ---------------- AI 动作的公共前置 ----------------
@@ -670,7 +702,9 @@ function aiPrecheck(state: AiFeatureState, label: string): boolean {
     return false
   }
   if (state === 'USED') {
-    ElMessage.warning(`该工单的「${label}」已经用过了，每张工单每个功能只能用一次`)
+    // 合并之后"分析与对话"这半边的 USED 走不到这里 —— 调用方会先看到 pairPaid 而跳过
+    // 整个前置（那一次不用再花钱）。能撞到这句的实际上只剩 PRD。
+    ElMessage.warning(`该工单的「${label}」已经用过了`)
     return false
   }
   if (state === 'IN_PROGRESS') {
@@ -690,9 +724,14 @@ function aiPrecheck(state: AiFeatureState, label: string): boolean {
 /** 消耗前的确认框。返回 false = 用户点了"再想想" */
 async function confirmConsume(label: string, isChat: boolean): Promise<boolean> {
   const balance = quota.value?.balance ?? 0
+  // 分析与对话共用这 1 次，花在哪一边都要把"另一边也解锁了"说清楚 —— 否则用户
+  // 事后发现自己"白得了"一件东西，第一反应是怀疑哪里算错了。
+  const pairNote = label === AI_FEATURE_LABELS.ANALYSIS
+    ? '「AI 分析与 AI 对话」共用这 1 次，AI 对话也会一并解锁。'
+    : ''
   const text = isChat
-    ? `本次将消耗 1 次 AI 辅助开发额度（当前剩余 ${balance} 次）。解锁后本工单内可无限对话，不再扣费。确认解锁？`
-    : buildConsumeConfirmText(label, balance, quota.value?.nextExpireAt)
+    ? `本次将消耗 1 次 AI 辅助开发额度（当前剩余 ${balance} 次）。解锁后本工单内可无限对话，并同时解锁 AI 分析（这一对共用这 1 次），不再扣费。确认解锁？`
+    : buildConsumeConfirmText(label, balance, quota.value?.nextExpireAt, pairNote)
   try {
     await ElMessageBox.confirm(text, '消耗额度确认', {
       confirmButtonText: '确认使用',
@@ -802,14 +841,19 @@ function reload() {
 /**
  * AI 分析（技术建议 + 任务拆解）。
  *
- * 一次消耗同时产出两个 tab 的内容 —— 后端那边也是一个功能
- * （AiFeature.ANALYSIS），所以两个 tab 的按钮共用一个 analyzing，
- * 一个在飞时另一个也禁用，避免用户以为"再点一次能生成另一半"。
+ * 一次消耗同时产出两个 tab 的内容 —— 后端那边也是一个槽位，所以两个 tab 的按钮
+ * 共用一个 analyzing，一个在飞时另一个也禁用，避免用户以为"再点一次能生成另一半"。
+ *
+ * pairPaid 时这一格已经由同组的另一半（AI 对话）付过了：这次生成免费，不弹确认框，
+ * 也不看余额 —— 后端走"不再扣费"那条路。前置校验整段跳过是安全的：pairPaid 蕴含
+ * 已登录、是接单人、quota 已就绪（否则状态不可能是 USED）。
  */
 async function handleAiAnalysis() {
   if (!ticket.value || analyzing.value) return
-  if (!aiPrecheck(analysisState.value, AI_FEATURE_LABELS.ANALYSIS)) return
-  if (!(await confirmConsume(AI_FEATURE_LABELS.ANALYSIS, false))) return
+  if (!pairPaid.value) {
+    if (!aiPrecheck(analysisState.value, AI_FEATURE_LABELS.ANALYSIS)) return
+    if (!(await confirmConsume(AI_FEATURE_LABELS.ANALYSIS, false))) return
+  }
 
   analyzing.value = true
   try {
@@ -872,9 +916,12 @@ async function handleDownloadPrd() {
 }
 
 /**
- * AI 对话。**首条消息消耗 1 次额度解锁，之后本工单内无限对话**（后端语义）。
+ * AI 对话。**首条消息消耗 1 次额度，解锁"AI 分析与对话"这一格**（后端语义）：
+ * 之后本工单内无限对话，AI 分析也一并可用。
  *
- * 所以确认框只在"还没解锁"时弹：已解锁还每次弹一次，用户会以为每条消息都在扣费。
+ * 所以确认框只在"这一格还没付过"时弹：已付过还每次弹一次，用户会以为每条消息都在扣费。
+ * 反过来，如果同组的 AI 分析先付过了，这里的 chatUnlocked 也是 true —— 不需要再花钱，
+ * 也就不该弹框，这正是"谁先用谁扣、另一个免费"在前端的落点。
  */
 async function handleAiChat() {
   if (!ticket.value || !aiChatInput.value.trim() || aiChatLoading.value) return
@@ -1186,14 +1233,6 @@ onMounted(() => {
 .credit-hint {
   margin-bottom: 14px;
   font-size: 13px;
-  color: var(--text-tertiary);
-}
-
-.used-note {
-  max-width: 420px;
-  margin: 0 auto 14px;
-  font-size: 13px;
-  line-height: 1.7;
   color: var(--text-tertiary);
 }
 

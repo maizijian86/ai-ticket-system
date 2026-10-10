@@ -502,8 +502,13 @@ public class TicketService {
      *
      * <p>由控制器在 {@code AiQuotaGate.run(...)} 里于**事务外**拿到结果后调用，本方法
      * 自己开一个短事务写入。之所以结果必须落库而不是直接拼进响应：额度已经扣了，
-     * 若响应在返回途中丢了（客户端超时、连接断开），不落库这次消耗就白花、内容再也
-     * 取不回来 —— 而这个功能每张工单只能用一次，用户没有第二次机会。
+     * 若响应在返回途中丢了（客户端超时、连接断开），不落库这次消耗就白花。
+     *
+     * <p>合并"分析与对话"之后这条路径还多了一层意义：这一次的开销在库里已经是既成事实，
+     * 而"有没有内容"成了控制器判断"这一半还能不能免费再生成一次"的**唯一**依据
+     * （见 TicketController.analyzeTicket）。所以这里落库失败不只是丢一次响应 ——
+     * 它会让那一半永远停留在"付过了但什么都没有"的状态。好在同组的另一半若没被用过，
+     * 用户重来一次仍然是免费的。
      */
     @Transactional
     public TicketDTO saveAiAnalysis(Long ticketId, String techSuggestion, String taskBreakdown) {

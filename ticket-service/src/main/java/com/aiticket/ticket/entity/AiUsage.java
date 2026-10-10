@@ -13,11 +13,14 @@ import lombok.EqualsAndHashCode;
  * <p>这张表同时干三件事，所以只有两张表就够（没有单独的"消耗流水表"）：
  * <ol>
  *   <li><b>消耗流水</b>：谁 / 何时 / 哪张工单 / 哪个功能 / 扣了哪个批次 / 结果如何；</li>
- *   <li><b>"每工单每功能一次"的权威约束</b>：唯一键 {@code (ticket_id, feature, active_slot)}。
- *       成功过的行永久占位（{@code active_slot=1}），同票同功能再插必然冲突 ——
- *       并发、多实例、Redis 挂了都成立，这就是不依赖分布式锁的原因；</li>
- *   <li><b>AI 对话的解锁凭证</b>：存在一行 {@code feature=CHAT, status=SUCCESS} 就是
- *       "本工单的 AI 对话已解锁"，之后多轮对话不再插行、不再扣费。</li>
+ *   <li><b>"每工单每槽位一次"的权威约束</b>：唯一键 {@code (ticket_id, feature, active_slot)}。
+ *       成功过的行永久占位（{@code active_slot=1}），同票同槽位再插必然冲突 ——
+ *       并发、多实例、Redis 挂了都成立，这就是不依赖分布式锁的原因。
+ *       <b>槽位不等于功能</b>：分析与对话共用 {@code feature=ANALYSIS} 这一行，
+ *       所以一张工单最多两行成功记录（分析与对话一行、PRD 一行）。</li>
+ *   <li><b>AI 对话的解锁凭证</b>：存在一行 {@code feature=ANALYSIS, status=SUCCESS} 就是
+ *       "本工单的 AI 对话已解锁"，之后多轮对话不再插行、不再扣费。历史上对话单独记在
+ *       {@code feature=CHAT} 上的行也认（合并之前的数据），读取时两者同属一格。</li>
  * </ol>
  *
  * <p>{@code active_slot} 为 NULL 表示"这次尝试已作废、槽位已释放"（AI 调用失败退款后

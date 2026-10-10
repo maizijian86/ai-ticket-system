@@ -423,15 +423,19 @@ CREATE TABLE ai_credit_batch (
     KEY idx_batch_user_expiry (user_id, expires_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='AI额度批次';
 
--- 使用流水：一行 = 一次功能调用尝试。同时是消耗流水和"每工单每功能一次"的数据库级约束。
--- uk_usage_slot 是这条规则的**权威**：SUCCESS 行永久占位，同票同功能再插必然冲突，
+-- 使用流水：一行 = 一次功能调用尝试。同时是消耗流水和"每工单每槽位一次"的数据库级约束。
+-- uk_usage_slot 是这条规则的**权威**：SUCCESS 行永久占位，同票同槽位再插必然冲突，
 -- 并发/多实例/Redis 挂了都成立。active_slot=NULL 在 MySQL 唯一键里不参与去重，
 -- 所以失败退款后可以重试（失败行保留下来做审计）。
+-- 槽位 ≠ 功能（2026-10-10 起）：AI 分析与 AI 对话是**同一个槽位**（谁先用谁扣，
+-- 另一个免费），两者都记在 feature=ANALYSIS 上 —— 各记一行就成了两条唯一键，
+-- 数据库谁也挡不住谁，并发下会被扣成两次。所以一张工单最多两行 SUCCESS：
+-- ANALYSIS（分析+对话）与 PRD。feature=CHAT 是合并前的历史写法，只读不写。
 CREATE TABLE ai_usage (
     id              BIGINT       AUTO_INCREMENT PRIMARY KEY,
     ticket_id       BIGINT       NOT NULL,
     user_id         BIGINT       NOT NULL COMMENT '消耗者(接单人)',
-    feature         VARCHAR(20)  NOT NULL COMMENT 'ANALYSIS / PRD / CHAT',
+    feature         VARCHAR(20)  NOT NULL COMMENT 'ANALYSIS(分析+对话) / PRD；CHAT 为历史值',
     status          VARCHAR(20)  NOT NULL COMMENT 'RESERVED / SUCCESS / REFUNDED',
     active_slot     TINYINT      DEFAULT 1 COMMENT '1=占用中; NULL=已释放(失败可重试)',
     batch_id        BIGINT       DEFAULT NULL COMMENT '实际扣减的批次,退款回滚到同一批',
