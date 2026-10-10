@@ -425,6 +425,15 @@ public class TicketService {
         // "待接单"的工单下面会挂着上一个接单人的交付凭证。
         ticket.setCompletionProof(null);
         ticket.setRejectionReason(null);
+        // 上一轮的私聊也要清。接单人已经清空了，旧对话失去了对象；不清的话新接单人
+        // 一接手就能读到上一位接单人和发布者之间的私下沟通 —— 权限校验挡住了"外人"，
+        // 挡不住"下一任"，等于换个姿势再漏一次。所以这里和验收通过走同一个动作。
+        // （真正会命中残留的只有 CLOSED → OPEN：COMPLETED 的私聊在 approveTicket
+        //   里就已经删了。）
+        chatService.deleteByTicketId(ticketId);
+        // 模型那边的记忆同理，理由见 approveTicket：只清人看得见的、不清模型记得的，
+        // 会留下一份"谁都看不见但还在"的旧上下文。
+        memoryManager.chatScopeAndClear(ticketId);
         ticket = ticketRepository.save(ticket);
 
         log.info("Ticket reopened: id={}", ticketId);
@@ -495,6 +504,29 @@ public class TicketService {
      */
     public Ticket requireHandlerTicket(Long id, Long userId, String action) {
         return requireHandler(id, userId, action);
+    }
+
+    /**
+     * 给「发布者↔接单人私聊」两个入口用的参与者门禁：载入工单 + 要求我是这一单的
+     * 发布者或接单人，二者之一即可。
+     *
+     * <p>不另写一套判定 —— 复用 {@link #isParticipant}，它和内部留言的可见性用的是
+     * 同一条规则（"这一单里我站哪边"）。私聊比内部留言严的地方在于**这里是拒绝而不是
+     * 过滤**：内部留言那侧详情页是公开的，非参与者安静地看不到就行；私聊页对非参与者
+     * 没有可看的内容，硬要返回一个空列表只会把"你不该在这"伪装成"这里没人说过话"。
+     *
+     * <p>错误码顺序同样是 404 → 401 → 403，与另外三道门一致。
+     *
+     * <p>管理员**不在**例外里。这一单的私聊是发布者和接单人之间的私下沟通，
+     * 管理员能读会让这句话变成一句谎话（见 {@link #isParticipant} 的注释）。
+     */
+    public Ticket requireParticipantTicket(Long id, Long userId, String action) {
+        Ticket ticket = loadTicketOr404(id);
+        requireLogin(userId);
+        if (!isParticipant(ticket, userId)) {
+            throw new BusinessException(403, "只有该工单的发布者或接单人可以" + action);
+        }
+        return ticket;
     }
 
     /**

@@ -90,9 +90,14 @@
               <el-icon><Check /></el-icon> 接单
             </el-button>
 
-            <!-- 进入聊天 - 接单后显示；归档后私聊已被清空，入口一并撤掉 -->
+            <!--
+              进入聊天 - 只有这一单的发布者和接单人看得到；归档后私聊已被清空，
+              入口一并撤掉。
+              此前只判 ticket.handlerId（"这张单有人接了"）而不判"是不是我"，
+              于是**任何登录用户**都能看到这个入口 —— 点进去才被后端 403 挡下。
+            -->
             <el-button
-              v-if="ticket.handlerId && !isArchived"
+              v-if="(isCreator || isHandler) && !isArchived"
               type="primary"
               @click="router.push(`/tickets/${ticket.id}/chat`)"
               class="btn-glass btn-glass-primary"

@@ -10,9 +10,9 @@
     <div v-loading="loading" class="chat-container">
       <!--
         私密沟通：只有发布者和接单者能看。
-        这是一道**纯前端**的 v-if，不是访问控制 —— 后端 /chat 接口目前没有
-        参与者校验，直接调接口仍然拿得到内容。这里只是把入口和界面藏起来，
-        让误入的人在正常使用中看不到别人的私聊。
+        边界在服务端（两个 /chat 端点都走 TicketService.requireParticipantTicket，
+        非参与者 403）。这张卡片是"直接敲 URL 进来"时的兜底 —— 正常使用中入口
+        已经被 TicketDetail.vue 收紧了，走不到这里。
       -->
       <el-card v-if="ticket && !isParticipant" class="glass-card-static">
         <el-empty description="这是发布者与接单者之间的私密沟通，你不在其中" />
@@ -98,10 +98,12 @@ import { ticketApi } from '@/api'
 import { ElMessage } from 'element-plus'
 import { ArrowLeft, User, Monitor, ChatDotRound } from '@element-plus/icons-vue'
 import { getStatusLabel, getStatusType } from '@/utils/ticket-labels'
+import { useAuthStore } from '@/stores/auth'
 import type { TicketDTO, ChatMessageDTO } from '@/types'
 
 const router = useRouter()
 const route = useRoute()
+const authStore = useAuthStore()
 
 const ticketId = Number(route.params.id)
 const ticket = ref<TicketDTO>()
@@ -111,13 +113,24 @@ const loading = ref(false)
 const sending = ref(false)
 const messagesListRef = ref<HTMLElement>()
 
-// 获取当前用户ID（从localStorage或store获取）
-const currentUserId = ref(Number(localStorage.getItem('userId') || '1'))
+// 与 TicketDetail.vue 的 myId 读同一个来源（authStore.userInfo.id）。
+// 此前读的是 localStorage 的 userId 且缺值时**默认成 1** —— 那个兜底会把任意一个人
+// 判成"用户 1"，于是 isParticipant 变真、请求发出去、被后端 403 挡回来。
+const currentUserId = computed(() => authStore.userInfo?.id)
 
-/** 只有发布者与接单者属于这次沟通（前端展示层的过滤，非访问控制） */
+/**
+ * 只有发布者与接单者属于这次沟通。
+ *
+ * 这是**展示层**的判定：真正的边界在后端（TicketController 两个 /chat 端点都走
+ * TicketService.requireParticipantTicket）。这里的作用是别让非参与者白打接口 ——
+ * 后端会 403，而 axios 拦截器在组件的 catch 之前就弹了红条，本页又是 5 秒一次的
+ * 轮询，不拦就是每 5 秒弹一条。
+ */
 const isParticipant = computed(() => {
   if (!ticket.value) return false
-  return ticket.value.creatorId === currentUserId.value || ticket.value.handlerId === currentUserId.value
+  const me = currentUserId.value
+  if (me === undefined || me === null) return false
+  return ticket.value.creatorId === me || ticket.value.handlerId === me
 })
 
 async function loadTicket() {
@@ -130,6 +143,9 @@ async function loadTicket() {
 }
 
 async function loadMessages() {
+  // 非参与者一个请求都不发（理由见 isParticipant 上方）。直接敲 URL 进来的人
+  // 会看到下面那张"你不在其中"的卡片，而不是一串红条。
+  if (!isParticipant.value) return
   try {
     messages.value = await ticketApi.getChatHistory(ticketId)
     await nextTick()
@@ -171,8 +187,10 @@ function formatTime(date: string) {
 // 定时刷新消息
 let refreshTimer: ReturnType<typeof setInterval>
 
-onMounted(() => {
-  loadTicket()
+onMounted(async () => {
+  // 必须等工单回来：isParticipant 要拿 creatorId/handlerId 才判得了，
+  // 不等的话首次 loadMessages 会因为 ticket 还是空而直接早退，白错过一次刷新。
+  await loadTicket()
   loadMessages()
   // 每5秒刷新消息
   refreshTimer = setInterval(loadMessages, 5000)

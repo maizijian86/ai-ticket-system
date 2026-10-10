@@ -188,8 +188,15 @@ public class TicketController {
     }
 
     // Chat endpoints
+    //
+    // 发布者↔接单人的私聊。边界在服务端：前端 TicketChat.vue 里那层"只有发布者和
+    // 接单者能看"是展示用的 v-if，不构成访问控制（它自己的注释也这么写着）。
+    // 两个端点此前的状态是：GET 连 X-User-Id 都没取，POST 还留着 `null → 1L` 的
+    // 兜底 —— 任何登录用户都能读写任意工单的私聊。已补上参与者门禁。
     @GetMapping("/{id}/chat")
-    public Result<List<ChatMessageDTO>> getChatHistory(@PathVariable Long id) {
+    public Result<List<ChatMessageDTO>> getChatHistory(@PathVariable Long id,
+                                                       @RequestHeader(value = "X-User-Id", required = false) Long userId) {
+        ticketService.requireParticipantTicket(id, userId, "查看该工单的私聊记录");
         return Result.success(chatService.getChatHistory(id));
     }
 
@@ -197,12 +204,16 @@ public class TicketController {
     public Result<ChatMessageDTO> sendChatMessage(@PathVariable Long id,
                                                   @Valid @RequestBody SendChatRequest request,
                                                   @RequestHeader(value = "X-User-Id", required = false) Long userId,
-                                                  @RequestHeader(value = "X-User-Name", required = false) String username,
-                                                  @RequestHeader(value = "X-User-Role", required = false) String role) {
-        if (userId == null) userId = 1L;
-        if (username == null) username = "anonymous";
-        if (role == null) role = "USER";
-        return Result.success(chatService.sendMessage(id, userId, username, role, request.getContent()));
+                                                  @RequestHeader(value = "X-User-Name", required = false) String username) {
+        Ticket ticket = ticketService.requireParticipantTicket(id, userId, "发送私聊消息");
+
+        // senderRole 按"这一单里我站哪边"推导，**不再用 X-User-Role**：那是账号维度的
+        // 角色（这个人整体是发布者还是接单人），拿它标一条消息里的站位是错的 ——
+        // 发布者身份的人接了别人的单，在这条消息里他就是接单人。也与 pickupTicket
+        // 里硬编码 "HANDLER" 的接单系统消息一致。
+        String senderRole = userId.equals(ticket.getCreatorId()) ? "CREATOR" : "HANDLER";
+        if (username == null) username = "用户" + userId;
+        return Result.success(chatService.sendMessage(id, userId, username, senderRole, request.getContent()));
     }
 
     @GetMapping("/stats")
