@@ -79,9 +79,15 @@ public class TicketService {
     private final AiServiceClient aiServiceClient;
     private final ChatService chatService;
     private final ConversationMemoryManager memoryManager;
+    /** 发布者预附额度要跟建单同事务（见 createTicket），故注入本服务而非在控制器里扣 */
+    private final AiQuotaService aiQuotaService;
 
     @Transactional
     public TicketDTO createTicket(CreateTicketRequest request, Long creatorId, String creatorName) {
+        // 缺身份头不再兜底成"用户 1"：这一行决定了预附额度扣谁的账（见下面 prepayAi），
+        // 兜底等于让匿名调用者花掉用户 1 的次数。
+        requireLogin(creatorId);
+
         Ticket ticket = new Ticket();
         ticket.setTitle(request.getTitle());
         ticket.setContent(request.getContent());
@@ -104,7 +110,18 @@ public class TicketService {
         ticket.setDetailedRequirements(request.getDetailedRequirements());
         ticket.setIsVisible(true);
 
+        // 发布者预附 1 次 AI 额度：先在实体上立标记，扣款放到 save 之后
+        // （ai_usage 要写 ticket_id，得先有 id）。本方法带 @Transactional，
+        // 所以 prepaySlot 抛出 402（额度不足）时整笔发布回滚 ——
+        // 工单不建、钱不扣，不会留下"扣了费却没有单"或"建了单却没附上"的半成品。
+        boolean prepayAi = Boolean.TRUE.equals(request.getUseAiCredit());
+        ticket.setAiPrepaid(prepayAi);
+
         ticket = ticketRepository.save(ticket);
+
+        if (prepayAi) {
+            aiQuotaService.prepaySlot(ticket.getId(), creatorId);
+        }
 
         log.info("Ticket created: id={}, title={}, creator={}", ticket.getId(), ticket.getTitle(), creatorName);
         return toDTO(ticket);
@@ -165,7 +182,12 @@ public class TicketService {
         PageRequest pageRequest = PageRequest.of(
                 query.getPage() - 1,
                 query.getPageSize(),
-                Sort.by(Sort.Direction.DESC, "createdAt")
+                // 发布者预附过 AI 额度的单排在前面（大厅里就是"置顶"），其次按创建时间倒序。
+                // aiPrepaid 只用来排序/打标，不是解锁判据（见 Ticket.aiPrepaid 的注释）。
+                // 只有本方法（大厅与"我的需求"等共用）带上这个次序；listMyTickets /
+                // 我接的单 / 已完成各自另有排序，不受影响。
+                Sort.by(Sort.Direction.DESC, "aiPrepaid")
+                        .and(Sort.by(Sort.Direction.DESC, "createdAt"))
         );
 
         Page<Ticket> page = ticketRepository.findAll(spec, pageRequest);
@@ -764,7 +786,9 @@ public class TicketService {
         builder.aiPrd(ticket.getAiPrd())
                 .aiTechSuggestion(ticket.getAiTechSuggestion())
                 .aiTaskBreakdown(ticket.getAiTaskBreakdown())
-                .aiEstimatedHours(ticket.getAiEstimatedHours());
+                .aiEstimatedHours(ticket.getAiEstimatedHours())
+                // 仅"发布者预附过"这个展示标记，不是"AI 已解锁"（后者看 AiQuotaStatusDTO）
+                .aiPrepaid(ticket.getAiPrepaid());
 
         // 接单状态。接单人就是 handlerId/handlerName（见 pickupTicket 的注释）；
         // 曾经并存的 accepted_by / accepted_by_name 已废弃删除 —— 没有任何查询

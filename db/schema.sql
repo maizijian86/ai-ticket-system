@@ -105,6 +105,11 @@ CREATE TABLE ticket (
     price           DECIMAL(10,2),
     ai_price_suggestion DECIMAL(10,2),
 
+    -- 发布者发布时预附的 1 次 AI 额度：接单人用「AI分析与对话」不扣自己的次数。
+    -- 只用于大厅置顶与打标（展示标记），**不是**解锁判据 ——
+    -- 解锁与否永远只看 ai_usage 里那行 (ticket_id, feature=ANALYSIS, status=SUCCESS)。
+    ai_prepaid      TINYINT(1) NOT NULL DEFAULT 0,
+
     -- Completion proof (GitHub link or other)
     completion_proof TEXT,
 

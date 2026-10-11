@@ -44,7 +44,10 @@ public class TicketController {
     public Result<TicketDTO> createTicket(@Valid @RequestBody CreateTicketRequest request,
                                           @RequestHeader(value = "X-User-Id", required = false) Long userId,
                                           @RequestHeader(value = "X-User-Name", required = false) String username) {
-        if (userId == null) userId = 1L; // fallback for testing
+        // 这里原来有 `if (userId == null) userId = 1L;`（fallback for testing）。
+        // 发布本身不花钱时，那只是"把单记在用户 1 名下"的脏数据；但 request.useAiCredit
+        // 会从**发布者自己的账户**扣 1 次额度，兜底就成了"没带身份的人花掉了 user 1 的次数"。
+        // 与其他写端点一致：缺身份一律 401，兜底改由 TicketService 抛（见 requireLogin）。
         if (username == null) username = "anonymous";
         return Result.success(ticketService.createTicket(request, userId, username));
     }

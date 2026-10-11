@@ -602,9 +602,9 @@ const analysisMask = computed(() => {
   if (!quota.value.isHandler) {
     return {
       title: '接单后可用',
-      detail: ticket.value?.handlerId
+      detail: withPrepaidNote(ticket.value?.handlerId
         ? '本工单已由其他开发者接单。AI 辅助开发只对这张工单的接单人开放。'
-        : '本工单还没有接单人。接单之后，AI 辅助开发就会对你开放。',
+        : '本工单还没有接单人。接单之后，AI 辅助开发就会对你开放。'),
       actionText: ''
     }
   }
@@ -628,7 +628,28 @@ const creditHint = computed(() => {
  * 只在"分析与对话"这一格用得上：同组的另一半先把这 1 次花掉了，所以这次生成免费。
  * PRD 是独立一格，不存在这种状态（它没内容就是没生成过）。
  */
-const pairPaidHint = 'AI 分析与 AI 对话合并计一次，这一次已经付过了，本次生成不再消耗额度。'
+const pairPaidHint = computed(() => {
+  const base = 'AI 分析与 AI 对话合并计一次，这一次已经付过了，本次生成不再消耗额度。'
+  // 发布者预附的场景必须说清这 1 次是谁付的：接单人看到"已经付过了"会以为是自己
+  // （或系统）扣的，而这一格在他这里是白用的。
+  return ticket.value?.aiPrepaid
+    ? base + '这 1 次由发布者在发布时预附，不扣你自己的次数。'
+    : base
+})
+
+/**
+ * 给一段"非接单人"的说明补上预附额度这一句。
+ *
+ * 两类人都需要：发布者本人（他花钱附了，得知道这钱花出去买到了什么）和别的旁观者
+ * （大厅卡片上那句 CTA 之外，点进来也该看得到）。**追加而不是替换** —— 原有的
+ * "接单后可用 / 已由他人接单"仍然要留着，那是这一段的主句。
+ */
+function withPrepaidNote(base: string): string {
+  if (!ticket.value?.aiPrepaid) return base
+  return base + (isCreator.value
+    ? '另外，你已为这张单附上 1 次 AI 额度 —— 接单人使用「AI 分析与对话」时不扣他自己的次数。'
+    : '另外，这张单的发布者已替他附上 1 次 AI 额度，接单后可免费使用「AI 分析与对话」。')
+}
 
 /** AI 对话输入框能不能打字：访客与非接单人都不能，接单人（未解锁也行）可以 */
 const chatInputDisabled = computed(() => {
@@ -650,9 +671,9 @@ const chatLocked = computed(() => {
   if (!quota.value.isHandler) {
     return {
       title: '接单后可用',
-      detail: ticket.value?.handlerId
+      detail: withPrepaidNote(ticket.value?.handlerId
         ? '本工单已由其他开发者接单。AI 对话只对这张工单的接单人开放。'
-        : '本工单还没有接单人。接单之后即可解锁 AI 对话。',
+        : '本工单还没有接单人。接单之后即可解锁 AI 对话。'),
       actionText: ''
     }
   }
@@ -689,6 +710,8 @@ const chatBanner = computed(() => {
     type: 'unlocked',
     icon: Check,
     text: '「AI 分析与对话」已解锁（两者共用这 1 次额度），本工单内可无限提问，不再消耗额度。'
+      // 预附的场景：这一格不是接单人自己花钱解锁的，说清来源
+      + (ticket.value?.aiPrepaid ? '这 1 次由发布者在发布时预附，不扣你自己的次数。' : '')
   }
 })
 

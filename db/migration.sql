@@ -97,3 +97,19 @@ CREATE TABLE IF NOT EXISTS membership_order (
     UNIQUE KEY uk_order_out_trade_no (out_trade_no),
     KEY idx_order_user (user_id, status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='会员订单';
+
+-- ticket.ai_prepaid：发布者发布时预附 1 次 AI 额度（接单人用完「AI分析与对话」不扣自己的）。
+-- 纯展示标记（大厅置顶与打标用），解锁判据始终是 ai_usage，详 DDL 见 db/schema.sql 的 ticket 表。
+--
+-- 给已存在的库补列。MySQL 的 ADD COLUMN 没有 IF NOT EXISTS，这段**不幂等**，跑过一次就完了；
+-- 全新建库由 db/schema.sql 直接带上。
+--
+-- 三句都要跑：本项目实际发生的是"Hibernate 的 ddl-auto: update 先按它自己的类型把列建了出来"，
+-- 而它建成的是 bit(1)、**可空、无默认** —— 存量 91 行因此全是 NULL。这不只是类型不齐：
+-- 大厅按 `ai_prepaid DESC, created_at DESC` 排序，而 NULL 在 DESC 里排在 0 **之后**，
+-- 于是新发的一张普通单会插到所有历史工单前面。第二句把类型纠正成与 ticket.is_visible
+-- 相同的 tinyint(1) NOT NULL（同样是 Boolean，那边就是这么建的，映射已验证可用），
+-- 第三句把存量行的 NULL 归零。第一句在列已存在时会报 Duplicate column，跳过即可。
+ALTER TABLE ticket ADD COLUMN ai_prepaid TINYINT(1) NOT NULL DEFAULT 0;
+ALTER TABLE ticket MODIFY COLUMN ai_prepaid TINYINT(1) NOT NULL DEFAULT 0;
+UPDATE ticket SET ai_prepaid = 0 WHERE ai_prepaid IS NULL;

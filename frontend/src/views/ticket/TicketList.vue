@@ -110,13 +110,19 @@
       </el-form>
     </el-card>
 
+    <!-- 图例：只在当前列表里真的有预附单时才出现（一条都没有时白占一行） -->
+    <div v-if="hasPrepaid" class="prepaid-legend">
+      <el-icon><MagicStick /></el-icon>
+      <span>带「AI 已解锁」标记的单：发布者已替他附上 1 次 AI 额度 —— 接单后 AI 分析与对话免费用，不扣你自己的次数。</span>
+    </div>
+
     <!-- 工单卡片网格 -->
     <div class="tickets-grid" v-loading="loading">
       <div
         v-for="ticket in tickets"
         :key="ticket.id"
         class="ticket-card glass-card"
-        :class="{ 'ticket-card-mine': ticket.creatorId === myId }"
+        :class="{ 'ticket-card-mine': ticket.creatorId === myId, 'ticket-card-ai': ticket.aiPrepaid }"
         @click="router.push(`/tickets/${ticket.id}`)"
       >
         <div class="ticket-card-header">
@@ -157,6 +163,19 @@
           <el-tag v-if="ticket.techStack.split(',').length > 3" size="small" type="info" class="glass-tag tech-tag">
             +{{ ticket.techStack.split(',').length - 3 }}
           </el-tag>
+        </div>
+
+        <!--
+          发布者预附了 AI 额度：打标 + 给接单者的 CTA。
+          刻意**不做**右上角飘带 —— 那个位置被 .ticket-card-mine::after 的「我的」占着，
+          发布者看自己附过额度的单会在同一个角上叠两个飘带。
+        -->
+        <div v-if="ticket.aiPrepaid" class="ai-prepaid">
+          <span class="ai-prepaid-badge">
+            <el-icon><MagicStick /></el-icon>
+            AI 已解锁
+          </span>
+          <span class="ai-prepaid-hint">发布者已附 1 次额度 · 接单后 AI 分析与对话免费</span>
         </div>
 
         <div class="ticket-card-footer">
@@ -238,7 +257,7 @@ import { ticketApi } from '@/api'
 import { useTicketStore } from '@/stores'
 import { useAuthStore } from '@/stores/auth'
 import {
-  Plus, Clock, Loading, Finished, ArrowRight, Document, Suitcase, Folder, Present
+  Plus, Clock, Loading, Finished, ArrowRight, Document, Suitcase, Folder, Present, MagicStick
 } from '@element-plus/icons-vue'
 import PickupTicketDialog from '@/components/PickupTicketDialog.vue'
 import CompleteDeliveryDialog from '@/components/CompleteDeliveryDialog.vue'
@@ -252,6 +271,14 @@ const ticketStore = useTicketStore()
 const authStore = useAuthStore()
 
 const myId = computed(() => authStore.userInfo?.id)
+
+/**
+ * 当前列表里有没有"发布者预附额度"的单 —— 图例按它显示。
+ *
+ * 用「已加载的这一页」而不是全站计数：图例是用来解释眼前这些卡片上的标记的，
+ * 眼前一条都没有却挂着一行图例，反而让人去找不存在的标记。
+ */
+const hasPrepaid = computed(() => tickets.value.some(t => t.aiPrepaid))
 
 // ---------------- 范围（卡片）定义 ----------------
 
@@ -943,6 +970,58 @@ onMounted(() => {
   font-weight: 600;
   padding: 2px 8px;
   border-radius: 10px;
+}
+
+/* 发布者预附过 AI 额度的卡片：一层很淡的琥珀底 + 卡内的标记（见 .ai-prepaid）。
+   刻意只用 background-image —— .ticket-card-mine 那边用了 !important 的 border 和
+   自带的 box-shadow，动这两样中的一个就会把"我的"那圈绿边或阴影挤掉。 */
+.ticket-card-ai {
+  background-image: linear-gradient(180deg, rgba(230, 162, 60, 0.1), rgba(230, 162, 60, 0.02));
+}
+
+.ai-prepaid {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.ai-prepaid-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #d9930a;
+  background: rgba(230, 162, 60, 0.16);
+  border: 1px solid rgba(230, 162, 60, 0.45);
+}
+
+.ai-prepaid-hint {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+/* 图例。自带底色，不挂 .glass-card-static —— 那个类的 background 会与本类的
+   琥珀底打架，谁赢取决于两张样式表的加载顺序。 */
+.prepaid-legend {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  background: rgba(230, 162, 60, 0.12);
+  border: 1px solid rgba(230, 162, 60, 0.35);
+}
+
+.prepaid-legend .el-icon {
+  color: #d9930a;
+  flex-shrink: 0;
 }
 
 .ticket-card-header {

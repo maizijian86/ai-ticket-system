@@ -133,6 +133,14 @@ export interface TicketDTO {
   aiTechSuggestion?: string
   aiTaskBreakdown?: string
   aiEstimatedHours?: number
+  /**
+   * 发布者发布时预附了 1 次 AI 额度（接单人用「AI分析与对话」不扣自己的次数）。
+   *
+   * ⚠️ 这是**展示标记**，用于大厅置顶/打标与详情页的来源说明。
+   * 判断「AI 是否已解锁」要用 AiQuotaStatusDTO（analysis === 'USED' 等），
+   * 不要用这个字段替代 —— 接单人自己付费解锁的单 aiPrepaid 是 false。
+   */
+  aiPrepaid?: boolean
   // 交付与验收。后端一直有这几个字段并一直在序列化，这里以前漏了 ——
   // 于是「交付凭证」「驳回理由」在类型上根本不存在，页面也就没地方显示它们。
   completionProof?: string
@@ -204,6 +212,11 @@ export interface CreateTicketRequest {
   budget?: number
   deadline?: string
   detailedRequirements?: string
+  /**
+   * 发布时是否消耗自己 1 次 AI 额度附在本工单上（发布即消耗、不退还）。
+   * 附上后接单人用「AI 分析与对话」不扣他自己的次数；PRD 仍由接单人自付。
+   */
+  useAiCredit?: boolean
 }
 
 export interface TicketQueryRequest {

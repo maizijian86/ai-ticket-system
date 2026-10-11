@@ -36,7 +36,7 @@
 ====================================================================
 一、已定的事（用户拍板，不要再问）
 ====================================================================
-（1~5 是 10-07 定的，6~11 是 10-09 定的，12 是 10-10 定的）
+（1~5 是 10-07 定的，6~11 是 10-09 定的，12~13 是 10-10 定的，14 是 10-11 定的）
 
 1. 会员以**月**为单位：购买日起 30 天内 30 次。
 2. 到期后**没用完的次数跟着作废**，不能攒、不能顺延到下一期。
@@ -99,6 +99,14 @@
     用户在「我的订单」里能看到这条（状态「待支付」），但没有按钮把它捡回来接着付；
     想付就重新下单。这个决定换来的是「**一个 out_trade_no 只对应一次支付尝试、
     作废后不重用**」这条干净语义（理由见第三节末），代价只是列表里多几条「已关闭」。
+
+14. **发布者可在发布时预附 1 次 AI 额度（10-11 定的四条）。** 发布者**自愿**消耗
+    自己 1 次，把这张单的「AI 分析与对话」这一格预先买断；接单人接单后免费
+    （PRD 仍自付）。四条：**不退还**（发布即消耗，没人接 / 工单关闭 / 删除都不退，
+    任何路径都不调 refund）；**只附「AI 分析与对话」这一格**，PRD 不给；
+    **只在发布时勾选**，不做发布后加码；**只有接单人能用**（发布者看自己发的单
+    仍是"接单后可用"，`requireHandlerTicket` 不动）。
+    施工细节与验收记录见**第十一节**。
 
 
 ====================================================================
@@ -1365,4 +1373,124 @@ ticket-service 的 8082，不走 natapp、不走网关（验的是应用层，�
     `timeout=8000`，再套 try/except —— 截图失败不该让整个验证脚本失败。
     另外别用 `pg.set_default_timeout(15000)` 全局压：那样每个 `wait_for_timeout`
     之外的操作都被压，反而更脆。
+
+====================================================================
+十一、发布者预附 AI 额度（2026-10-11 开发，已验收）
+====================================================================
+
+一句话：发布者在发布需求时**自愿消耗自己 1 次额度**，把这张单的「AI 分析与对话」
+这一格预先买断；接单人接单后，AI 分析与对话都不扣他自己的次数（PRD 仍自付）。
+附了额度的单在大厅置顶，并打「AI 已解锁」标记。拍板的四条见**一.14**。
+
+**先回答开工前问的那句：`ticket` 表里没有 AI 解锁字段，而且不需要加。**
+表上只有 ai_prd / ai_tech_suggestion / ai_task_breakdown / ai_estimated_hours
+四个**内容**列。解锁的判据一直是 `ai_usage` 里那行
+`(ticket_id, feature=ANALYSIS, status=SUCCESS)`，且 `AiQuotaService.isSpent(ticketId, feature)`
+**只按 ticket_id + feature 查，根本不看 user_id**（AiQuotaService.java:188-193）。
+所以"发布者付钱、接单人白用"在闸门上一行都不用改 —— `isSpent` / `status` /
+`AiQuotaGate` / `requireHandlerTicket` **全部未动**（这是本次改动最大的一处"没改"）。
+不退还同样落在了"没有代码"上：全仓没有一行 `AlipayTradeRefund`，`refund()` 仍只服务
+"AI 调用失败"这一种情况。
+
+1. **落了什么**
+   - `ticket.ai_prepaid TINYINT(1) NOT NULL DEFAULT 0`，schema.sql / migration.sql /
+     `entity.Ticket` 三处同步。它的定位是**展示标记，不是门禁依据**：万一漏更新，
+     后果只是少个徽标、排序不靠前，**不会**出现"没付就免费"或"付了还扣款"。
+   - **为什么非得加这一列**：大厅排序走 Spring Data 的 `PageRequest` + `Sort`，
+     而 `Sort` 只能落在实体属性上，落不到 `EXISTS(SELECT … FROM ai_usage)` 这种子查询。
+     不加列就得把 `listTickets` 按"大厅/非大厅"拆成两条 SQL 分支。
+   - `AiQuotaService.prepaySlot(ticketId, publisherId)`：以**发布者**的 userId 调
+     `reserve(…, ANALYSIS)` 后**立刻 `markSuccess`**。传 ANALYSIS 是因为它是合并槽的
+     头（写它才占住"分析与对话"这一对）；立刻置 SUCCESS 是因为 RESERVED 的语义是
+     "AI 调用进行中"，`reclaimIfStale` 30 分钟后会把它回收、允许再扣一次 ——
+     而这里根本没有调用在进行，停在 RESERVED 等于留一个 30 分钟后自行蒸发的锁。
+   - `TicketService.createTicket` 里**同一事务**：先 `save` 拿到 id（ai_usage 要写
+     ticket_id），再 `prepaySlot`。额度不够时 reserve 抛 402 → 整笔发布回滚 ——
+     工单不建、钱不扣。
+   - **删掉了** `TicketController.createTicket` 里的 `userId == null → 1L` 兜底：
+     在扣款的语境里它意味着"没带身份的人花掉 user 1 的额度"，改成与其他写端点一致
+     的 `requireLogin`（401）。
+   - 大厅排序 `aiPrepaid DESC, createdAt DESC`，只改 `listTickets` 一处
+     （大厅与"我的需求"共用；我接的单 / 已完成 / 我的需求各自本来就是另外的方法，
+     一行没动）。
+   - 详情页的"已解锁"判定**仍然读 `/ai-usage`**，没有换成 `ai_prepaid` —— 接单人
+     自己付费解锁的单是"已解锁但 aiPrepaid=0"，换字段会回归。aiPrepaid 只用来
+     加一句来源说明。
+
+2. **后端验收（真服务 + 真库 + 真模型；两个脚本 27 条断言全过）**
+   脚本 `probe-prepay.py`（1-8 条，结果 prepay-backend.txt）与
+   `probe-prepay-order.py`（置顶单独重跑，结果 prepay-order.txt）。
+   - 带 `useAiCredit=true` 发单：发布者余额 5→4，`ticket.ai_prepaid=1`，
+     `ai_usage` 多一行 `(user_id=发布者, ANALYSIS, SUCCESS, batch_id 非空)`。
+   - 不带：无 ai_usage 行、ai_prepaid=0、余额不变。
+   - **原子性**（这条是全部风险点）：余额为 0 的账号带 useAiCredit=true → 业务码 **402**，
+     按标题查 `ticket` **count=0**，且没有留下任何 ai_usage 行。
+   - 另一账号接单后 `/ai-usage`：analysis=USED、chat=USED、prd=AVAILABLE、
+     isHandler=true、balance 显示的是**接单人自己**的余额。
+   - 接单人跑真 AI 分析（5667 + 1739 字符，耗时 132.5s）：接单人 5→5，发布者 4→4。
+   - 接单人对话：同样免费，且库里这张单仍只有 1 行 ai_usage（没被重复扣）。
+   - 接单人下载 PRD：**接单人 5→4**、库里多出第 2 行 —— "只附一格"的实证。
+   - 置顶：把一张预附单的 created_at 改到 3 天前，它仍排在本轮新建的普通单之前；
+     接口顺序与库里同一条 ORDER BY 逐项一致（8d1-8e）。
+     *第一次跑这条时我判了 FAIL，实际是探针自己的错*：分页数组的字段是
+     `data.data`，我读成了 `list`；而且"断言某一张排第一"本身就不成立 ——
+     库里同时有几张预附单，它们之间本来就按 createdAt 倒序。真正要证的是
+     "**全部预附单都排在全部非预附单之前**"，改写后才对。
+
+3. **前端验收（playwright + 真后端，26 条全过，`probe-prepay-ui.py` / prepay-ui.txt）**
+   - 发布页：勾选框在，文案写清"接单人可免费使用「AI 分析与对话」"；提示区显示真余额
+     「当前剩余 N 次」、「不退还」、「PRD 生成不在内」。
+   - 点「发布项目」先弹确认框（正文含"不退还 / 消耗 1 次 / 剩余 N 次"），**此时还没有
+     发出任何建单请求**；点「再想想」→ 框关、没发请求、余额没动、留在发布页。
+     （这条是"不退还"这句承诺真正落地的地方 —— 它必须在用户按下确认之前出现。）
+   - 点「确认附上」→ 拦到的请求体 `useAiCredit=true`，跳到详情页，余额 3→2。
+   - 详情页（发布者视角）：AI 卡片上同时有主句"接单后可用"和后补的
+     "你已为这张单附上 1 次 AI 额度 —— 接单人使用「AI 分析与对话」时不扣他自己的次数"。
+   - 大厅：图例只在列表里真有预附单时出现；三张预附单全部排在最前（下标 0,1,2）；
+     卡片上有「AI 已解锁」徽标与"发布者已附 1 次额度 · 接单后 AI 分析与对话免费"。
+   - 零余额账号：勾选框 `is-disabled`，提示"当前剩余 0 次，额度不足 —— 去开通会员"，
+     链接 `href=/profile`。
+
+4. **回归**（计划 5.1 第 9 条）：把合并槽位那一轮的全量脚本 `probe-merged-slot.py`
+   原样重跑 → **33 条全过、0 失败**（merged-slot.txt）。关键的两条是
+   D1「分析与对话**并发**打过去仍只扣 1 次」和 Z1「收尾把 admin2 的余额复原到 155」。
+   说明预附改造没有碰坏"合并成一格"这条规则。
+
+5. **测试数据（已清）**：探针账号（`ppub*` / `phan*` / `pzero*` / `pagetest*` 共 9 个）
+   与它们名下的工单（87-109，共 22 张）连同 ai_usage / 额度批次 / 私聊行一起删掉了：
+   工单 101→79、账号 77→68，复核没有孤儿行，**admin2 的余额仍是 155**。
+   删前把命中的行原样导出在 `cleanup-snapshot.txt`（要回读随时有料）。
+
+========== 这一轮踩到的坑 ==========
+
+28. **Hibernate `ddl-auto: update` 建出的 Boolean 是 `bit(1) NULL`，没有默认值**，
+    和 schema.sql 写的 `TINYINT(1) NOT NULL DEFAULT 0` 不一致。加列那一刻库里 91 行
+    历史数据的 `ai_prepaid` **全是 NULL**，而 MySQL 的 `ORDER BY x DESC` 把
+    **NULL 排在 0 之后**（NULL 视为最大）→ 后果是**每发一张普通新单都压过全部历史单**，
+    大厅第一页会被新单刷屏。修法：先 `UPDATE ticket SET ai_prepaid=0 WHERE ai_prepaid IS NULL`，
+    再 `ALTER TABLE ticket MODIFY COLUMN ai_prepaid TINYINT(1) NOT NULL DEFAULT 0`，
+    并把这段记进 db/migration.sql。
+    教训：**加"可排序的布尔列"时，先看它建出来是 NULL 还是 0，再去看排序** ——
+    我是先去跑大厅排序才发现的。另外 `ORDER BY` 里 NULL 的位置在 MySQL 是"最大"，
+    别按直觉当成最小。
+29. **库里读出来的是文本，JSON 读出来的是数字**：`mysql -N -B` 给的是 `'99'`，
+    接口给的是 `99`。对照两份来源时混着比，会出现"看着不一样、其实一样"的假失败。
+    统一 `str()` 之后再比。
+30. **Python 调 mysql 要用 Windows 形式的路径**
+    （`D:/study/app/mysql-8.0.34-winx64/bin/mysql.exe`）：Git Bash 的 `/d/study/...`
+    它认不出来，报 `FileNotFoundError [WinError 2]`。
+    （从 bash 起、PATH 上有 mysql 时，`subprocess.run(["mysql", …])` 也能跑。）
+31. **不要用 `user` 当表名去查** —— 这张表叫 `users`，写成 `user` 是
+    `ERROR 1146 Table 'aiticket.user' doesn't exist`；而 mysql 把错误写 stderr、
+    stdout 空着，脚本里看着就像"这个账号不存在"。
+32. **登录响应里 userId 在顶层**（accessToken / refreshToken / userId / username /
+    role / nickname），**没有嵌套的 user 对象** —— 探针里写 `data["user"]["id"]` 会 KeyError。
+33. **清测试数据要先弄清哪几张表有外键**。`file_attachment` / `ticket_chat` /
+    `ticket_comment` 有指向 `ticket` 的外键（`*_ibfk_1`），必须先删子行；
+    而 `ai_usage` / `ai_credit_batch` / `ticket_chat.sender_id` **没有任何外键** ——
+    删账号时它们不会被挡住，只会安安静静地变成孤儿行。现查：
+    `select table_name,column_name,referenced_table_name from information_schema.key_column_usage
+     where table_schema='aiticket' and referenced_table_name is not null;`
+    顺带：`user` 不是表名（见 31），账号表叫 `users`；而**账号是在 ticket-service 那个库里的**
+    （user-service 也连 `aiticket`，不是另一个库）。
 

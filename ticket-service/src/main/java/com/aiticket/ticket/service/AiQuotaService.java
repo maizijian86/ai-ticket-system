@@ -292,6 +292,38 @@ public class AiQuotaService {
         return usage;
     }
 
+    /**
+     * 发布者预附：把这张工单的「AI分析与对话」这一格先买断 —— 发布时扣发布者 1 次，
+     * 之后接单人用这一格不扣他自己的次数（PRD 不在内，仍由接单人自付）。
+     *
+     * <p><b>发布即消耗、不退还</b>：没人接、工单关闭或删除都不退，所以这里没有对应的
+     * 退款路径（{@link #refund} 只服务"AI 调用失败"这一种情况）。
+     *
+     * <p>三个刻意的选择：
+     * <ul>
+     *   <li><b>传 {@link AiFeature#ANALYSIS}</b>：分析与对话是同一格，
+     *       {@link #groupOf} 的头就是 ANALYSIS，写它才占住这**一对**。</li>
+     *   <li><b>立刻 {@link #markSuccess} 而不是停在 RESERVED</b>：RESERVED 的语义是
+     *       "AI 调用进行中"，{@link #reclaimIfStale} 会在 30 分钟后把它退回、允许再扣一次。
+     *       这里根本没有调用在进行，停在那儿等于留一个会自行蒸发的锁。SUCCESS 是终态，
+     *       也正是 {@link #isSpent} 认的"已解锁"。</li>
+     *   <li><b>这里是自调用</b>（{@code reserve}/{@code markSuccess} 都走不到自己的代理），
+     *       但外层已经开了事务，语义正确且正是需要的：调用方
+     *       （{@code TicketService.createTicket}）把本方法与"插工单"放在同一个事务里，
+     *       402 一抛两件事一起回滚 —— 额度不足时工单不会建出来、钱也不会扣。</li>
+     * </ul>
+     *
+     * @throws BusinessException 402 发布者额度不足；409 该单的这一格已经被占（正常流程到不了，
+     *         新工单的 id 是刚分配出来的）
+     */
+    @Transactional
+    public void prepaySlot(Long ticketId, Long publisherId) {
+        AiUsage usage = reserve(ticketId, publisherId, AiFeature.ANALYSIS);
+        markSuccess(usage.getId());
+        log.info("发布者预附 AI 额度: ticketId={}, publisherId={}, usageId={}",
+                ticketId, publisherId, usage.getId());
+    }
+
     /** 标记调用成功 —— 额度落定，不再退回。 */
     @Transactional
     public void markSuccess(Long usageId) {

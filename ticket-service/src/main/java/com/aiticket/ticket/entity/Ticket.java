@@ -157,6 +157,16 @@ public class Ticket extends BaseEntity {
     @Column(name = "ai_estimated_hours")
     private Integer aiEstimatedHours;
 
+    // 发布者发布时预附了 1 次 AI 额度：这张单的「AI分析与对话」由发布者买单，
+    // 接单人使用时不扣自己的次数（PRD 不在此列）。
+    //
+    // 注意这是**展示标记**，只为大厅置顶与打标而存在（listTickets 的 Sort 只能落在
+    // 实体属性上，落不到 EXISTS(ai_usage) 子查询，故冗余一列）。
+    // 「谁该免费用」永远只由 ai_usage 决定（AiQuotaService.isSpent 按 ticket_id+feature 查，
+    // 不看 user_id），所以这一列漏更新最多是少个徽标，不会造成免费用/多扣费。
+    @Column(name = "ai_prepaid")
+    private Boolean aiPrepaid = false;
+
     // ==================== 接单状态 ====================
 
     // 接单者就是上面的 handlerId / handlerName —— 全系统只此一处。

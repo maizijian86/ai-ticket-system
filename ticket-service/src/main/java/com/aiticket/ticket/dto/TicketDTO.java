@@ -96,6 +96,10 @@ public class TicketDTO {
     // AI工时估算
     private Integer aiEstimatedHours;
 
+    // 发布者发布时是否预附了 1 次 AI 额度（仅用于大厅置顶/打标与详情页说明，
+    // 判断「AI 是否已解锁」仍然看 AiQuotaStatusDTO，不要用这个字段替代）
+    private Boolean aiPrepaid;
+
     // ==================== 接单状态 ====================
 
     // 接单者用 handlerId / handlerName，不再另设 acceptedBy（理由见 Ticket 实体）

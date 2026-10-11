@@ -106,6 +106,32 @@
               <el-radio label="CRITICAL">非常紧急</el-radio>
             </el-radio-group>
           </el-form-item>
+
+          <!-- 发布者预附 AI 额度：把这单的「AI分析与对话」先买断，接单人免费用 -->
+          <el-divider content-position="left">AI 辅助额度</el-divider>
+
+          <el-form-item label="附上额度" class="glass-checkbox">
+            <div class="ai-credit-row">
+              <el-checkbox v-model="form.useAiCredit" :disabled="!canPrepay">
+                附上 1 次 AI 额度，接单人可免费使用「AI 分析与对话」
+              </el-checkbox>
+            </div>
+            <p class="ai-credit-hint">
+              <template v-if="!aiCreditLoaded">额度信息加载中…</template>
+              <template v-else-if="aiRemaining === null">
+                读不到你的额度余额，暂时不能附 —— 稍后重试或到
+                <router-link to="/profile" class="ai-credit-link">个人主页</router-link> 看看。
+              </template>
+              <template v-else-if="aiRemaining < 1">
+                当前剩余 0 次，额度不足 ——
+                <router-link to="/profile" class="ai-credit-link">去开通会员</router-link>
+              </template>
+              <template v-else>
+                当前剩余 {{ aiRemaining }} 次。附上后<strong>不退还</strong>（没人接、工单关闭或删除都不退）。
+                附上的单会在大厅排到前列，更容易被接单；PRD 生成不在内，仍由接单人自付。
+              </template>
+            </p>
+          </el-form-item>
         </el-form>
 
         <div class="form-actions">
@@ -120,14 +146,15 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { ticketApi } from '@/api'
+import { ticketApi, membershipApi } from '@/api'
 import { useTicketStore } from '@/stores'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowLeft } from '@element-plus/icons-vue'
 import type { FormInstance } from 'element-plus'
 import type { TicketCategory, Urgency } from '@/types'
+import { buildConsumeConfirmText } from '@/utils/ai-quota'
 
 const router = useRouter()
 const ticketStore = useTicketStore()
@@ -144,7 +171,32 @@ const form = reactive({
   techStack: '',
   detailedRequirements: '',
   budget: null as number | null,
-  deadline: ''
+  deadline: '',
+  // 发布时是否附上自己 1 次 AI 额度（默认不附 —— 花钱的动作要用户主动勾）
+  useAiCredit: false
+})
+
+// ==================== 发布者的 AI 额度余额 ====================
+
+const aiCreditLoaded = ref(false)
+/** 可用次数；null 表示没读到（读不到就不许勾，免得让用户以为附上了） */
+const aiRemaining = ref<number | null>(null)
+const aiNextExpireAt = ref<string | null>(null)
+
+// 余额不够就不让勾。加载完之前也不让勾 —— 否则用户可能在"还不知道剩几次"时就提交。
+const canPrepay = computed(() => aiCreditLoaded.value && (aiRemaining.value ?? 0) >= 1)
+
+onMounted(async () => {
+  try {
+    const me = await membershipApi.me()
+    aiRemaining.value = me.remaining
+    aiNextExpireAt.value = me.nextExpireAt ?? null
+  } catch {
+    // 静默降级：勾选框禁用 + 行内提示，不弹错（进发布页就报错太吵）
+    aiRemaining.value = null
+  } finally {
+    aiCreditLoaded.value = true
+  }
 })
 
 const rules = {
@@ -153,11 +205,38 @@ const rules = {
   projectType: [{ required: true, message: '请选择项目类型', trigger: 'change' }]
 }
 
+/**
+ * 附额度是花钱的动作，而且**发布即消耗、不退还** —— 这句必须出现在用户按下之前，
+ * 不能只在页面上写一行小字。文案复用详情页那套 buildConsumeConfirmText，
+ * 两处的"消耗几次 / 还剩几次 / 什么时候过期"口径才不会各说各话。
+ */
+async function confirmPrepay(): Promise<boolean> {
+  const text = buildConsumeConfirmText(
+    'AI 分析与对话',
+    aiRemaining.value ?? 0,
+    aiNextExpireAt.value,
+    '这笔额度发布即消耗、不退还（没人接、工单关闭或删除都不退），附上后接单人使用「AI 分析与对话」不再扣他自己的次数。'
+  )
+  try {
+    await ElMessageBox.confirm(text, '附上 AI 额度', {
+      confirmButtonText: '确认附上',
+      cancelButtonText: '再想想',
+      type: 'warning'
+    })
+    return true
+  } catch {
+    // 「再想想」/ 点右上角关闭：什么都不做，表单内容原样留着
+    return false
+  }
+}
+
 async function handleSubmit() {
   if (!formRef.value) return
 
   await formRef.value.validate(async (valid) => {
     if (valid) {
+      if (form.useAiCredit && !(await confirmPrepay())) return
+
       submitting.value = true
       try {
         const ticket = await ticketApi.createTicket({
@@ -171,11 +250,12 @@ async function handleSubmit() {
           // form.budget 是 number | null（输入框清空后为 null），
           // 而 CreateTicketRequest.budget 是可选的 number —— 用 ?? 把 null 收敛成 undefined。
           budget: form.budget ?? undefined,
-          deadline: form.deadline
+          deadline: form.deadline,
+          useAiCredit: form.useAiCredit
         })
 
         ticketStore.triggerRefresh()
-        ElMessage.success('项目发布成功')
+        ElMessage.success(form.useAiCredit ? '项目发布成功，已附上 1 次 AI 额度' : '项目发布成功')
         router.push(`/tickets/${ticket.id}`)
       } finally {
         submitting.value = false
@@ -223,6 +303,32 @@ async function handleSubmit() {
 
 .ai-hint.success {
   color: var(--el-color-success, #67c23a);
+}
+
+/* ---- 发布者预附 AI 额度 ---- */
+.ai-credit-row {
+  display: flex;
+  align-items: center;
+}
+
+.ai-credit-hint {
+  margin: 4px 0 0;
+  color: var(--text-secondary, #909399);
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.ai-credit-hint strong {
+  color: var(--el-color-warning, #e6a23c);
+}
+
+.ai-credit-link {
+  color: var(--el-color-primary, #409eff);
+  text-decoration: none;
+}
+
+.ai-credit-link:hover {
+  text-decoration: underline;
 }
 
 .form-actions {

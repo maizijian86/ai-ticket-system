@@ -46,4 +46,15 @@ public class CreateTicketRequest {
 
     // 详细需求描述
     private String detailedRequirements;
+
+    // ==================== AI 额度 ====================
+
+    /**
+     * 发布时是否消耗自己 1 次 AI 额度附在本工单上。
+     *
+     * 附上后：接单人用「AI 分析与对话」不扣他自己的次数（PRD 不在内，仍由接单人自付）；
+     * 该单在大厅置顶并标注。**发布即消耗、不退还**（没人接、关闭、删除都不退）。
+     * 为空按 false 处理。额度不足时整个发布失败（402），工单不会创建。
+     */
+    private Boolean useAiCredit;
 }
