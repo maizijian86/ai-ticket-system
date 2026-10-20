@@ -30,6 +30,11 @@
     <properties>
         <java.version>17</java.version>
         <spring-cloud.version>2023.0.1</spring-cloud.version>
+        <!-- Spring Boot 3.3.0 默认带的 Lombok 是 1.18.32，它只认到 JDK 21。用 JDK 24 编译时
+             Lombok 不报错、但生成的方法体是空的，产物写出来的 class 运行期直接炸：
+             ClassFormatError: Invalid method Code length 0。命令行用 JDK 17 构建时看不出来，
+             所以这个坑只在 IDE 用 24 构建时冒出来。升到 1.18.46（支持到 JDK 24）杜绝这一类。 -->
+        <lombok.version>1.18.46</lombok.version>
     </properties>
 
     <dependencyManagement>

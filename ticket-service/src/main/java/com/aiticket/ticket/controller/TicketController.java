@@ -18,7 +18,9 @@ import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
 import java.net.URLEncoder;
@@ -174,12 +176,32 @@ public class TicketController {
     // 此处原有 POST /{id}/accept —— 第二条接单路径（与 /pickup 各写一组字段，
     // 于是接单后工单从大厅下架却不在「我接的单」里）。已删除，只留 /pickup。
 
-    // Complete ticket (handler submits for approval)
-    @PostMapping("/{id}/complete")
+    /**
+     * 交付：接单者**上传压缩包**，工单随之进入待验收。
+     *
+     * <p>这次把入参从 JSON 改成了 multipart，是"状态只在传了文件之后才流转"的落点：
+     * 交付与上传合成一件事，"没传文件的交付"在接口层面就不存在（详见
+     * {@code TicketService.completeTicket}）。
+     *
+     * <p>字段名固定 {@code file}，与头像上传 {@code POST /users/me/avatar} 保持一致。
+     * 体积/格式的校验在服务端，前端那道 accept 只是提示。
+     */
+    @PostMapping(value = "/{id}/complete", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public Result<TicketDTO> completeTicket(@PathVariable Long id,
-                                            @Valid @RequestBody CompleteTicketRequest request,
+                                            @RequestParam("file") MultipartFile file,
                                             @RequestHeader(value = "X-User-Id", required = false) Long userId) {
-        return Result.success(ticketService.completeTicket(id, request, userId));
+        return Result.success(ticketService.completeTicket(id, file, userId));
+    }
+
+    /**
+     * 一个工单的交付物列表。**不是匿名接口**（网关的匿名白名单里没有它），
+     * 而且服务端还会再判一次参与者 —— 返回的 url 是公共读地址，发出去就等于放行下载。
+     * 发布者用它验收、接单人用它回看自己交了什么。
+     */
+    @GetMapping("/{id}/delivery")
+    public Result<List<FileAttachmentDTO>> getDeliveryFiles(@PathVariable Long id,
+                                                            @RequestHeader(value = "X-User-Id", required = false) Long userId) {
+        return Result.success(ticketService.deliveryFiles(id, userId));
     }
 
     // Approve or reject completion (user confirms)
@@ -416,7 +438,10 @@ public class TicketController {
             throw new BusinessException(400, "消息内容不能为空");
         }
 
-        String context = "当前项目信息：\n" + buildProjectInfo(ticket) + "\n用户问题: " + userMessage;
+        // 分隔串用 TicketService 里的常量，不写字面量：读历史那侧要按它把原话切出来
+        // （见 TicketService.cleanUserPrompt），两处必须逐字符相同。
+        String context = "当前项目信息：\n" + buildProjectInfo(ticket)
+                + TicketService.USER_PROMPT_SEPARATOR + userMessage;
 
         // AI 调用（带上下文记忆）。这一格付过了就不再经过额度门禁 —— 一次付费，
         // 本工单内畅聊；同组的 AI 分析也是同一个道理，它那边少扣的那一次由这条消息付掉了。
@@ -441,5 +466,24 @@ public class TicketController {
                 .build();
 
         return Result.success(response);
+    }
+
+    /**
+     * AI 对话历史 —— 详情页的「对话」页签在打开时拉一次，把刷新丢掉的气泡补回来。
+     *
+     * <p>来源是 Redis 里的**会话记忆本身**（模型上下文），不是一份独立的聊天记录，
+     * 所以有三件事要知道：只有最近 {@code MAX_MESSAGES} 条、没有时间戳、
+     * 验收通过后记忆被销毁就读不到了。读不到返回空表而不是报错 ——
+     * 见 {@code ConversationMemoryManager.chatHistory}。
+     *
+     * <p>门禁与 {@code POST /{id}/ai-chat} 相同（只给接单人）：历史不能比入口宽，
+     * 否则发布者能读到接单人和模型之间的往来。
+     *
+     * <p>本条**不在网关的匿名白名单里**，未登录调用是 401。
+     */
+    @GetMapping("/{id}/ai-chat/history")
+    public Result<List<AiChatMessageDTO>> aiChatHistory(@PathVariable Long id,
+                                                       @RequestHeader(value = "X-User-Id", required = false) Long userId) {
+        return Result.success(ticketService.aiChatHistory(id, userId));
     }
 }

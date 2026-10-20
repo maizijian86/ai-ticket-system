@@ -20,6 +20,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.security.web.AuthenticationEntryPoint;
 import org.springframework.security.web.access.AccessDeniedHandler;
@@ -52,6 +53,11 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/api/v1/auth/**").permitAll()
                         .requestMatchers("/actuator/**").permitAll()
+                        // 头像查询：登录卡在"还没登录"时就要显示头像，大厅访客也要看到
+                        // 发布者头像。**只放行这两个精确路径的 GET** —— 写成
+                        // /api/v1/users/** 会把 PUT/DELETE /users/{id}（管理员改人）
+                        // 一起放开。两条都在网关上另有一道匿名白名单（ANONYMOUS_READ_PATTERN）。
+                        .requestMatchers(HttpMethod.GET, "/api/v1/users/avatar", "/api/v1/users/avatars").permitAll()
                         .anyRequest().authenticated()
                 )
                 .exceptionHandling(ex -> ex

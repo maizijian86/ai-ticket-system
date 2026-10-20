@@ -14,7 +14,7 @@ package com.aiticket.ticket.enums;
 public enum CreditSource {
     /** 新用户注册赠送（5 次，永久有效） */
     REGISTER,
-    /** 会员按月发放（30 次，自发放日起 30 天有效） */
+    /** 会员按月发放（Lite 10 / Pro 30 / Max 120 次，一律自发放日起 30 天有效） */
     MEMBERSHIP,
     /** 管理员手动调整 */
     ADMIN

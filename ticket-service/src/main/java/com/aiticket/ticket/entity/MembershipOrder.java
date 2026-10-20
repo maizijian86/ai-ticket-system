@@ -43,7 +43,7 @@ public class MembershipOrder extends BaseEntity {
     @Column(name = "user_id", nullable = false)
     private Long userId;
 
-    /** 下单时的套餐标识，如 MONTHLY_30 */
+    /** 下单时的套餐标识：LITE / PRO / MAX（存量的 MONTHLY_30 是 PRO 的前身） */
     @Column(name = "plan_code", nullable = false, length = 32)
     private String planCode;
 

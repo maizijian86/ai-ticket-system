@@ -76,5 +76,33 @@
             <version>0.12.5</version>
             <scope>runtime</scope>
         </dependency>
+
+        <!-- 阿里云 OSS。groupId 是 com.aliyun.oss，不是老教程里写的 com.aliyun
+             （后者根本拉不到，IDE 会直接标红）。 -->
+        <dependency>
+            <groupId>com.aliyun.oss</groupId>
+            <artifactId>aliyun-sdk-oss</artifactId>
+            <version>3.18.1</version>
+        </dependency>
+
+        <!-- JDK 9 起 JAXB 从 JDK 里移出了（本项目是 17），而 aliyun-sdk-oss 内部要用它。
+             少了这三个，编译期一切正常、**第一次真正发请求才**抛
+             NoClassDefFoundError: javax/xml/bind/DatatypeConverter —— 一个很难联想到
+             "缺依赖"的报错。版本必须按官方给的那组配，别自己升 jaxb-runtime 到 4.x。 -->
+        <dependency>
+            <groupId>javax.xml.bind</groupId>
+            <artifactId>jaxb-api</artifactId>
+            <version>2.3.1</version>
+        </dependency>
+        <dependency>
+            <groupId>javax.activation</groupId>
+            <artifactId>activation</artifactId>
+            <version>1.1.1</version>
+        </dependency>
+        <dependency>
+            <groupId>org.glassfish.jaxb</groupId>
+            <artifactId>jaxb-runtime</artifactId>
+            <version>2.3.3</version>
+        </dependency>
     </dependencies>
 </project>

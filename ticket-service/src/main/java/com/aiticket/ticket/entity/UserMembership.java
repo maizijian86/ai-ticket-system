@@ -31,7 +31,7 @@ public class UserMembership extends BaseEntity {
     @Column(name = "user_id", nullable = false)
     private Long userId;
 
-    /** 套餐标识，如 MONTHLY_30（30 天 30 次） */
+    /** 套餐标识：LITE(10次) / PRO(30次) / MAX(120次)，存量的 MONTHLY_30 是 PRO 的前身 */
     @Column(name = "plan_code", nullable = false, length = 32)
     private String planCode;
 

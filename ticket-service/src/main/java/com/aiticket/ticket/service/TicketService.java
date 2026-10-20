@@ -5,12 +5,19 @@ import com.aiticket.common.enums.Priority;
 import com.aiticket.common.enums.TicketCategory;
 import com.aiticket.common.enums.TicketStatus;
 import com.aiticket.common.exception.BusinessException;
+import com.aiticket.common.storage.OssStorage;
 import com.aiticket.ticket.dto.*;
+import com.aiticket.ticket.entity.FileAttachment;
 import com.aiticket.ticket.entity.Ticket;
 import com.aiticket.ticket.entity.TicketComment;
+import com.aiticket.ticket.enums.MembershipPlan;
 import com.aiticket.ticket.feign.AiServiceClient;
+import com.aiticket.ticket.repository.FileAttachmentRepository;
 import com.aiticket.ticket.repository.TicketCommentRepository;
 import com.aiticket.ticket.repository.TicketRepository;
+import dev.langchain4j.data.message.AiMessage;
+import dev.langchain4j.data.message.ChatMessage;
+import dev.langchain4j.data.message.UserMessage;
 import jakarta.persistence.criteria.Predicate;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -20,12 +27,17 @@ import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 
+import java.io.IOException;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -74,6 +86,19 @@ public class TicketService {
             TicketStatus.CLOSED
     );
 
+    /**
+     * 「用户问题」在喂给模型的 prompt 里那层包装的分隔串。
+     *
+     * <p>AI 对话存进 Redis 的是拼过的整段 prompt，不是用户原话（见
+     * {@code cleanUserPrompt}）。拼的地方在 {@code TicketController.aiChat}，
+     * 拆的地方在本类 —— 两边用**同一个常量**，改一处不会漏掉另一处。
+     * 常量的第二个消费者是"把历史显示给人看"，所以它是 public 的。
+     *
+     * <p>注意冒号是**半角**、后面带一个空格，与中文全角冒号是两个不同的串，
+     * 改这里等于让历史拆不开（表现为每个气泡都顶着一段项目描述）。
+     */
+    public static final String USER_PROMPT_SEPARATOR = "\n用户问题: ";
+
     private final TicketRepository ticketRepository;
     private final TicketCommentRepository ticketCommentRepository;
     private final AiServiceClient aiServiceClient;
@@ -81,6 +106,18 @@ public class TicketService {
     private final ConversationMemoryManager memoryManager;
     /** 发布者预附额度要跟建单同事务（见 createTicket），故注入本服务而非在控制器里扣 */
     private final AiQuotaService aiQuotaService;
+    /**
+     * 读发布者的会员档位，用来在建单那一刻快照「大厅优先曝光」。
+     *
+     * <p>注入 MembershipService 而不是直接查 {@code UserMembershipRepository}：
+     * 「哪一档带曝光」是套餐权益的定义，只能有一处（{@code MembershipPlan.hallPromoted}）。
+     * 那个方法是只读、不抛 401 的，放进建单事务里不改变它的语义。
+     * 依赖方向也安全 —— MembershipService 不认识 TicketService，不构成环。
+     */
+    private final MembershipService membershipService;
+    private final FileAttachmentRepository fileAttachmentRepository;
+    /** 交付物落阿里云 OSS。放 common 的那份实现，与头像是同一个 AK（见 OssStorage 注释） */
+    private final OssStorage ossStorage;
 
     @Transactional
     public TicketDTO createTicket(CreateTicketRequest request, Long creatorId, String creatorName) {
@@ -116,6 +153,13 @@ public class TicketService {
         // 工单不建、钱不扣，不会留下"扣了费却没有单"或"建了单却没附上"的半成品。
         boolean prepayAi = Boolean.TRUE.equals(request.getUseAiCredit());
         ticket.setAiPrepaid(prepayAi);
+
+        // 大厅优先曝光：按发布者**此刻**在售的会员档位快照一个标记，与 ai_prepaid 同构。
+        // 纯读写一次本地表，和"给工单多存一列"在同一个事务里 —— 没有外部调用，
+        // 失败也不会让建单回滚（activePlan 查不出档位时返回空 = 不给曝光，不抛异常）。
+        ticket.setMemberPromoted(membershipService.activePlan(creatorId)
+                .map(MembershipPlan::hallPromoted)
+                .orElse(false));
 
         ticket = ticketRepository.save(ticket);
 
@@ -182,11 +226,15 @@ public class TicketService {
         PageRequest pageRequest = PageRequest.of(
                 query.getPage() - 1,
                 query.getPageSize(),
-                // 发布者预附过 AI 额度的单排在前面（大厅里就是"置顶"），其次按创建时间倒序。
-                // aiPrepaid 只用来排序/打标，不是解锁判据（见 Ticket.aiPrepaid 的注释）。
+                // 大厅的三级次序：会员曝光 > 预附额度 > 创建时间倒序。
+                // 两个标记都只用来排序/打标，不是解锁判据（见 Ticket 里各自的注释）。
                 // 只有本方法（大厅与"我的需求"等共用）带上这个次序；listMyTickets /
                 // 我接的单 / 已完成各自另有排序，不受影响。
-                Sort.by(Sort.Direction.DESC, "aiPrepaid")
+                //
+                // memberPromoted 压过 aiPrepaid 是有意的：预附一次额度约合 1 元
+                // （花 1 次额度），Max 一个月 78 元，出价高的排前面才讲得通。
+                Sort.by(Sort.Direction.DESC, "memberPromoted")
+                        .and(Sort.by(Sort.Direction.DESC, "aiPrepaid"))
                         .and(Sort.by(Sort.Direction.DESC, "createdAt"))
         );
 
@@ -360,15 +408,50 @@ public class TicketService {
     }
 
     /**
-     * 接单者提交交付，进入待验收。
+     * 交付物的体积上限。
      *
-     * 入参状态是 ACCEPTED 或 REJECTED：后者是"被驳回后重新交付"。此前只允许
+     * <p>与 {@code application.yml} 里的 {@code spring.servlet.multipart.max-file-size: 10MB}
+     * **必须是同一个数**：那层先拦（超过就 413，前端只能看到一句英文），这里再给人话。
+     * 想放大要两处一起改 —— 而且 {@code OssStorage.upload} 是把整个文件读进内存再发的，
+     * 上限往几百 MB 加之前，得先把它改成流式上传。
+     */
+    private static final long DELIVERY_MAX_BYTES = 10L * 1024 * 1024;
+
+    /**
+     * 交付物允许的压缩包后缀。
+     *
+     * <p>**按文件名判，不按浏览器报的 Content-Type**：同一个 zip，Chrome 报
+     * {@code application/zip}、Windows 报 {@code application/x-zip-compressed}、
+     * 有的客户端干脆报 {@code application/octet-stream}，拿它当白名单只会把正常文件挡在外面。
+     * 后缀挡不住存心作恶的人（改个后缀即可），但这里防的是"误传一个 200MB 的 mp4"，
+     * 真正的边界是"只有本单接单人能传"。
+     */
+    private static final Set<String> DELIVERY_ALLOWED_EXTENSIONS =
+            Set.of("zip", "rar", "7z", "tar", "gz", "tgz");
+
+    /**
+     * 接单者提交交付：**上传压缩包 + 进入待验收，一步完成**。
+     *
+     * <p>这里此前收的是一个 JSON（{@code completionProof} 填仓库地址），本次改成 multipart。
+     * 理由是"状态只在传了文件之后才流转"这条规则最好做成结构性的：接口里根本没有
+     * "不传文件的交付"，也就不存在绕过它的调用方式。校验放服务端，前端那层只是提示。
+     *
+     * <p><b>不加 {@code @Transactional}</b>，与 {@code UserService.updateAvatar} 同一个理由：
+     * 传 OSS 是一次网络调用，不该夹在事务里占着数据库连接（Hikari 池只有 10 条）。
+     * 顺序是**先传 OSS、再写两行库**，且附件行在工单状态之前：
+     * <ul>
+     *   <li>先传 OSS：反过来的话，库里会留下一个指向不存在对象的地址；</li>
+     *   <li>先落附件行、再改状态：中间失败最坏是"包传上去了、状态还没动"，接单人
+     *       再点一次即可；反过来先改状态的话，失败留给发布者的是"一个待验收、
+     *       却没有任何文件的单" —— 那是验收页没法解释的状态。</li>
+     * </ul>
+     *
+     * <p>入参状态是 ACCEPTED 或 REJECTED：后者是"被驳回后重新交付"。此前只允许
      * ACCEPTED，而验收驳回会把状态置为 REJECTED —— 那 REJECTED 就是个**死状态**，
      * 接单者再也交不了，工单永远卡住。既然「待处理」把 REJECTED 列进来让人处理，
      * 这里就必须放行。
      */
-    @Transactional
-    public TicketDTO completeTicket(Long ticketId, CompleteTicketRequest request, Long userId) {
+    public TicketDTO completeTicket(Long ticketId, MultipartFile file, Long userId) {
         Ticket ticket = requireHandler(ticketId, userId, "提交交付");
 
         if (ticket.getStatus() != TicketStatus.ACCEPTED
@@ -376,19 +459,143 @@ public class TicketService {
             throw new BusinessException(400, "只有进行中或被驳回的工单可以提交交付");
         }
 
-        if (request.getCompletionProof() != null) {
-            ticket.setCompletionProof(request.getCompletionProof());
+        if (file == null || file.isEmpty()) {
+            throw new BusinessException(400, "请选择要交付的压缩包");
         }
-        if (request.getGithubRepos() != null) {
-            ticket.setGithubRepos(request.getGithubRepos());
+        if (file.getSize() > DELIVERY_MAX_BYTES) {
+            throw new BusinessException(400, "交付包不能超过 10MB");
         }
+        String originalName = originalNameOf(file);
+        String extension = extensionOf(originalName);
+        if (!DELIVERY_ALLOWED_EXTENSIONS.contains(extension)) {
+            throw new BusinessException(400, "交付物只支持压缩包（zip / rar / 7z / tar / gz / tgz）");
+        }
+
+        byte[] content;
+        try {
+            content = file.getBytes();
+        } catch (IOException e) {
+            throw new BusinessException(500, "读取上传文件失败");
+        }
+
+        // 带 ticketId：事后在 OSS 控制台一眼看出这包属于哪张单。
+        // 带 uuid：被驳回后重新交付不会覆盖上一次那份 —— 验收页要能同时看到两次交付。
+        String key = "delivery/" + ticketId + "/" + UUID.randomUUID().toString().replace("-", "")
+                + "." + extension;
+        // 落 OSS 时**固定 octet-stream**，不用客户端报的类型：这些是压缩包，让浏览器
+        // 直接下载而不是猜着打开；也顺手堵掉"传一个 text/html 上来、在 bucket 域名下
+        // 拿到一个可执行页面"这条口子。
+        ossStorage.upload(key, content, "application/octet-stream");
+
+        FileAttachment attachment = new FileAttachment();
+        attachment.setTicketId(ticketId);
+        attachment.setFileName(key.substring(key.lastIndexOf('/') + 1));
+        attachment.setOriginalName(originalName);
+        attachment.setFilePath(key);
+        attachment.setFileSize(file.getSize());
+        attachment.setMimeType(file.getContentType());
+        attachment.setUploadedBy(userId);
+        fileAttachmentRepository.save(attachment);
+
+        // 交付凭证留一份公网地址：详情页那块「交付凭证」沿用它，不必为了一个文件再多一处跳转。
+        ticket.setCompletionProof(ossStorage.publicUrl(key));
         // 重新交付时清掉上一次的驳回原因，否则验收页会挂着一条早已修掉的旧理由
         ticket.setRejectionReason(null);
         ticket.setStatus(TicketStatus.PENDING_APPROVAL);
         ticket = ticketRepository.save(ticket);
 
-        log.info("Ticket completed (pending approval): id={}", ticketId);
+        log.info("Ticket completed with delivery file (pending approval): id={}, key={}, size={}B",
+                ticketId, key, file.getSize());
         return toDTO(ticket);
+    }
+
+    /**
+     * 一个工单的交付物列表 —— 「去完成」侧（接单人）和「去验收」侧（发布者）都用它。
+     *
+     * <p>门禁是**参与者**而不是接单人：发布者必须能下载接单人交上来的包，那是他验收的依据。
+     * 访客和路人一律 403 —— 这里返回的 url 是公共读地址，发出去就等于放行下载。
+     */
+    @Transactional(readOnly = true)
+    public List<FileAttachmentDTO> deliveryFiles(Long ticketId, Long userId) {
+        requireParticipantTicket(ticketId, userId, "查看交付文件");
+        return fileAttachmentRepository.findByTicketIdOrderByIdDesc(ticketId).stream()
+                .map(a -> new FileAttachmentDTO(
+                        a.getId(),
+                        a.getOriginalName(),
+                        a.getFileSize(),
+                        a.getMimeType(),
+                        ossStorage.publicUrl(a.getFilePath()),
+                        a.getUploadedBy(),
+                        a.getCreatedAt()))
+                .collect(Collectors.toList());
+    }
+
+    /**
+     * 工单的 AI 对话历史，给详情页「对话」页签补回历史气泡。
+     *
+     * <p>门禁是**接单人**：AI 对话本身就只对接单人开放（{@code POST /{id}/ai-chat}
+     * 走的是 {@code requireHandlerTicket}），历史不能比入口宽 —— 否则发布者能读到
+     * 接单人和模型之间的往来。
+     *
+     * <p>读不到就返回空表（见 {@code ConversationMemoryManager.chatHistory}）：
+     * Redis 没起、记忆已过期、验收通过后已被销毁，这几种情况对前端都是同一件事 ——
+     * "没有历史"，从这一页继续聊即可。
+     */
+    public List<AiChatMessageDTO> aiChatHistory(Long ticketId, Long userId) {
+        requireHandler(ticketId, userId, "查看 AI 对话历史");
+
+        List<AiChatMessageDTO> items = new ArrayList<>();
+        for (ChatMessage message : memoryManager.chatHistory(ticketId)) {
+            if (message instanceof UserMessage user) {
+                items.add(new AiChatMessageDTO(
+                        AiChatMessageDTO.ROLE_USER, cleanUserPrompt(user.singleText())));
+            } else if (message instanceof AiMessage ai) {
+                items.add(new AiChatMessageDTO(AiChatMessageDTO.ROLE_AI, ai.text()));
+            }
+            // 其余类型（系统消息、工具调用结果）不进气泡 —— 它们不是"谁说过的话"
+        }
+        return items;
+    }
+
+    /**
+     * 把存进记忆的「用户消息」还原成用户当时敲的原话。
+     *
+     * <p>写进 Redis 的每条用户消息都不是原话，而是 {@code TicketController.aiChat}
+     * 拼过的 prompt：{@code "当前项目信息：\n" + 项目信息 + USER_PROMPT_SEPARATOR + message}。
+     * 那层包装对模型是必要的（它得知道在给哪个项目提建议），但直接拿来展示就是噪声 ——
+     * 每个气泡都糊着同一段项目描述。
+     *
+     * <p>所以在这里按**同一个分隔串**切回去。切不到就原样返回：宁可能看到一个带包装的
+     * 气泡，也不要因为格式对不上而把内容整段吃掉。
+     */
+    private static String cleanUserPrompt(String raw) {
+        if (raw == null) {
+            return "";
+        }
+        int at = raw.lastIndexOf(USER_PROMPT_SEPARATOR);
+        return at < 0 ? raw : raw.substring(at + USER_PROMPT_SEPARATOR.length());
+    }
+
+    /**
+     * 取原始文件名，顺手切掉可能带上的目录部分 —— 有些客户端会传 {@code C:\x\y.zip}。
+     * 取不到就返回空串，交给后缀白名单去拒（一个没有文件名的交付物本来也没法命名）。
+     */
+    private static String originalNameOf(MultipartFile file) {
+        String name = file.getOriginalFilename();
+        if (name == null || name.isBlank()) {
+            return "";
+        }
+        int slash = Math.max(name.lastIndexOf('/'), name.lastIndexOf('\\'));
+        return (slash >= 0 ? name.substring(slash + 1) : name).trim();
+    }
+
+    /** 小写后缀，不含点。没有后缀就返回空串。 */
+    private static String extensionOf(String fileName) {
+        int dot = fileName.lastIndexOf('.');
+        if (dot < 0 || dot == fileName.length() - 1) {
+            return "";
+        }
+        return fileName.substring(dot + 1).toLowerCase(Locale.ROOT);
     }
 
     @Transactional
@@ -788,7 +995,9 @@ public class TicketService {
                 .aiTaskBreakdown(ticket.getAiTaskBreakdown())
                 .aiEstimatedHours(ticket.getAiEstimatedHours())
                 // 仅"发布者预附过"这个展示标记，不是"AI 已解锁"（后者看 AiQuotaStatusDTO）
-                .aiPrepaid(ticket.getAiPrepaid());
+                .aiPrepaid(ticket.getAiPrepaid())
+                // 发布者是带曝光权益的会员（Max）—— 同样是展示标记，前端据此打"会员优先"
+                .memberPromoted(ticket.getMemberPromoted());
 
         // 接单状态。接单人就是 handlerId/handlerName（见 pickupTicket 的注释）；
         // 曾经并存的 accepted_by / accepted_by_name 已废弃删除 —— 没有任何查询

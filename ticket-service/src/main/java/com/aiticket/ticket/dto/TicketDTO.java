@@ -100,6 +100,11 @@ public class TicketDTO {
     // 判断「AI 是否已解锁」仍然看 AiQuotaStatusDTO，不要用这个字段替代）
     private Boolean aiPrepaid;
 
+    // 发布者在发这张单时是带「大厅优先曝光」权益的会员（目前只有 Max 档）。
+    // 与 aiPrepaid 同构：只用于大厅置顶与打标，不参与任何权限判断。
+    // 前端可以把它的置顶样式做得比 aiPrepaid 更显眼（两者都置顶时它排更前）
+    private Boolean memberPromoted;
+
     // ==================== 接单状态 ====================
 
     // 接单者用 handlerId / handlerName，不再另设 acceptedBy（理由见 Ticket 实体）

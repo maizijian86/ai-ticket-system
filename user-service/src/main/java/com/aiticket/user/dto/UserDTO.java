@@ -19,6 +19,8 @@ public class UserDTO {
     private String username;
     private String email;
     private String nickname;
+    /** "default:N" 或 OSS 对象 key。前端据此分叉：前者映射本地静态图，后者直接当 URL */
+    private String avatarUrl;
     private Role role;
     private String status;
     private LocalDateTime lastLoginAt;

@@ -29,6 +29,20 @@ public class User extends BaseEntity {
     @Column(length = 100)
     private String nickname;
 
+    /**
+     * 头像。两种取值（判据是前缀，见 UserService）：
+     * <ul>
+     *   <li>{@code "default:N"}（N=1..9）—— 前端 public/avatars/N.svg。注册时随机分配一个，
+     *       用户不主动改就一直不变。</li>
+     *   <li>{@code "avatar/{userId}/{uuid}.png"} —— 用户自己传的，存在 OSS 里的对象 key。</li>
+     * </ul>
+     *
+     * <p>本服务是 {@code ddl-auto: validate}，这一列**不会**被 Hibernate 自动建出来，
+     * DDL 在 {@code db/migration.sql} 末尾。
+     */
+    @Column(name = "avatar_url", length = 500)
+    private String avatarUrl;
+
     @Enumerated(EnumType.STRING)
     @Column(length = 20)
     private Role role = Role.USER;

@@ -167,6 +167,27 @@ public class Ticket extends BaseEntity {
     @Column(name = "ai_prepaid")
     private Boolean aiPrepaid = false;
 
+    /**
+     * 发布这张单的人**在建单那一刻**是带大厅优先曝光权益的会员（目前只有 Max）。
+     *
+     * <p>与 {@link #aiPrepaid} 完全同构：一个冗余的展示/排序标记，大厅按它置顶。
+     * 冗余的理由也一样 —— {@code listTickets} 的 {@code Sort} 只能落在实体属性上，
+     * 落不到 {@code EXISTS(user_membership)} 子查询。
+     *
+     * <p><b>刻意不随会员到期而收回。</b>这是发布时的快照：用户买 Max 时付了钱、
+     * 单是在会员有效期内发的，就让它一直置顶。反过来说，**买 Max 不会让已经发出去
+     * 的老单置顶** —— 没有回填任务（全仓没有任何 {@code @Scheduled}，为一个曝光位
+     * 引入调度框架不划算）。这一点要在会员权益文案里说清楚，否则就是
+     * "我买了 Max 怎么没置顶"的客诉。
+     *
+     * <p>⚠️ 与 {@code ai_prepaid} 一样有个建表陷阱：Hibernate 的 {@code ddl-auto: update}
+     * 会把这个 Boolean 建成**可空无默认**的列，存量行全是 NULL，而 NULL 在 {@code DESC}
+     * 里排在 0 **之后** —— 于是所有历史工单会插到新单前面。补列语句见
+     * {@code db/migration.sql} 末尾（三句：ADD / MODIFY / UPDATE 归零）。
+     */
+    @Column(name = "member_promoted")
+    private Boolean memberPromoted = false;
+
     // ==================== 接单状态 ====================
 
     // 接单者就是上面的 handlerId / handlerName —— 全系统只此一处。

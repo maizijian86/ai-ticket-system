@@ -12,6 +12,14 @@ CREATE TABLE users (
     password        VARCHAR(255) NOT NULL,
     email           VARCHAR(255) NOT NULL UNIQUE,
     nickname        VARCHAR(100),
+
+    -- 头像。两种取值，前端据此分叉：
+    --   "default:N"（N=1..9）→ public/avatars/N.svg，注册时随机分配一个，用户不改就不变
+    --   "avatar/{userId}/{uuid}.png" → 用户自己传的，存在 OSS 里的对象 key
+    -- 判据是前缀（见 UserService.isOssKey）—— 换头像时只有 OSS key 需要删对象，
+    -- 把 "default:3" 当 key 去删会报 KeyNotFound。
+    avatar_url      VARCHAR(500),
+
     role            VARCHAR(20) DEFAULT 'USER',
     status          VARCHAR(20) DEFAULT 'active',
     last_login_at   DATETIME,
@@ -109,6 +117,12 @@ CREATE TABLE ticket (
     -- 只用于大厅置顶与打标（展示标记），**不是**解锁判据 ——
     -- 解锁与否永远只看 ai_usage 里那行 (ticket_id, feature=ANALYSIS, status=SUCCESS)。
     ai_prepaid      TINYINT(1) NOT NULL DEFAULT 0,
+
+    -- 发布这张单的人在建单那一刻是带「大厅优先曝光」权益的会员（目前只有 Max 档）。
+    -- 与 ai_prepaid 完全同构：纯展示/排序标记，大厅按
+    -- `member_promoted DESC, ai_prepaid DESC, created_at DESC` 排。
+    -- 刻意是发布时的快照、不随会员到期收回，也不给老单回填（见 Ticket.memberPromoted）。
+    member_promoted TINYINT(1) NOT NULL DEFAULT 0,
 
     -- Completion proof (GitHub link or other)
     completion_proof TEXT,
@@ -460,9 +474,9 @@ CREATE TABLE ai_usage (
 CREATE TABLE user_membership (
     id              BIGINT      AUTO_INCREMENT PRIMARY KEY,
     user_id         BIGINT      NOT NULL,
-    plan_code       VARCHAR(32) NOT NULL COMMENT '如 MONTHLY_30',
+    plan_code       VARCHAR(32) NOT NULL COMMENT 'LITE / PRO / MAX；存量的 MONTHLY_30 是 PRO 的前身',
     status          VARCHAR(16) NOT NULL COMMENT 'ACTIVE / EXPIRED / CANCELED',
-    credits_granted INT         NOT NULL COMMENT '本周期发放次数(30)',
+    credits_granted INT         NOT NULL COMMENT '本周期发放次数(Lite 10 / Pro 30 / Max 120)',
     started_at      DATETIME    NOT NULL,
     expires_at      DATETIME    NOT NULL COMMENT 'started_at + 30 天',
     auto_renew      TINYINT     DEFAULT 0,
@@ -486,7 +500,7 @@ CREATE TABLE user_membership (
 CREATE TABLE membership_order (
     id           BIGINT        AUTO_INCREMENT PRIMARY KEY,
     user_id      BIGINT        NOT NULL COMMENT '下单账号',
-    plan_code    VARCHAR(32)   NOT NULL COMMENT '下单时的套餐，如 MONTHLY_30',
+    plan_code    VARCHAR(32)   NOT NULL COMMENT '下单时的套餐：LITE / PRO / MAX；存量的 MONTHLY_30 是 PRO 的前身',
     plan_credits INT           NOT NULL COMMENT '权益快照: 该套餐发放次数',
     plan_days    INT           NOT NULL COMMENT '权益快照: 该套餐有效天数',
     amount       DECIMAL(10,2) NOT NULL COMMENT '下单金额(元)',

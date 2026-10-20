@@ -21,8 +21,16 @@ public class MembershipDTO {
     /** 实时判定（status=ACTIVE 且 expires_at > now），不是任何缓存字段 */
     private Boolean isMember;
 
-    /** 非会员时全为 null，但 remaining 照常为真实余额 */
+    /**
+     * 非会员时全为 null，但 remaining 照常为真实余额。
+     *
+     * <p>**已规范化**：存量会员的 {@code MONTHLY_30}（Pro 的前身）在这里一律是
+     * {@code PRO}，前端不必认识历史档位码。
+     */
     private String planCode;
+
+    /** 档位显示名（"Pro 会员"），前端直接渲染，不用自己维护码 → 名的映射 */
+    private String planName;
 
     private LocalDateTime startedAt;
 

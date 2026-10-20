@@ -113,3 +113,49 @@ CREATE TABLE IF NOT EXISTS membership_order (
 ALTER TABLE ticket ADD COLUMN ai_prepaid TINYINT(1) NOT NULL DEFAULT 0;
 ALTER TABLE ticket MODIFY COLUMN ai_prepaid TINYINT(1) NOT NULL DEFAULT 0;
 UPDATE ticket SET ai_prepaid = 0 WHERE ai_prepaid IS NULL;
+
+-- ============================================================
+-- 2026-10-15 会员拆三档（Lite / Pro / Max）—— 大厅优先曝光
+-- ============================================================
+-- ticket.member_promoted：发布者在建单那一刻是带「大厅优先曝光」权益的会员（目前只有
+-- Max 档），纯展示/排序标记，与 ai_prepaid 同构。大厅新次序：
+--     member_promoted DESC, ai_prepaid DESC, created_at DESC
+-- 完整说明见 db/schema.sql 的 ticket 表与 Ticket.memberPromoted 的注释。
+--
+-- ⚠️ 三句都要跑，理由与上面的 ai_prepaid 一字不差：本项目实际发生的是
+-- "Hibernate 的 ddl-auto: update 先把列建了出来"，实测建出来的是 bit(1) NULL DEFAULT NULL
+-- （81 行存量全是 NULL），而 NULL 在 DESC 里排在 0 **之后**
+-- （实测 `ORDER BY c DESC` 对 {0,1,NULL} 返回 1,0,NULL）——
+-- 于是新发的一张普通单会插到所有历史工单前面。第一句在列已存在时报 Duplicate column，
+-- 跳过即可；后两句把它纠正成与 ai_prepaid / is_visible 完全相同的 tinyint(1) NOT NULL。
+--
+-- ⚠️ 顺序与上面 ai_prepaid 那组不同（这里是 UPDATE 在 MODIFY 之前），这是**改过的**：
+-- 若列已由 Hibernate 建出且存量是 NULL，先 MODIFY ... NOT NULL 会直接报
+-- `ERROR 1265 Data truncated for column 'member_promoted'`（strict 模式拒绝把 NULL 塞进
+-- NOT NULL），根本走不到第三句。先归零再收紧，两条路径（列不存在 / 列已存在）就都能跑通。
+--
+-- ⚠️ 跑法：`mysql ... --force < db/migration.sql`（或逐句手工执行）。
+-- 本文件从第一行起就是**不可重跑**的历史累积脚本，第 2 句就会撞上已有的 tech_stack；
+-- 不加 --force 的话，客户端的 batch 模式会在第一个错误处直接停住，后面的语句一句都不跑
+-- （实测：用 `-e "..."` 一次传整串时，前面的 Duplicate column 会把后面全吞掉）。
+ALTER TABLE ticket ADD COLUMN member_promoted TINYINT(1) NOT NULL DEFAULT 0;
+UPDATE ticket SET member_promoted = 0 WHERE member_promoted IS NULL;
+ALTER TABLE ticket MODIFY COLUMN member_promoted TINYINT(1) NOT NULL DEFAULT 0;
+
+-- 套餐码变更说明（**这两张表都不需要数据迁移**）：
+--   · 在售档位码从 MONTHLY_30 变成 LITE / PRO / MAX，但 MONTHLY_30 就是今天的 PRO，
+--     价格与权益一字未改。存量 user_membership / membership_order 里的 MONTHLY_30
+--     由 MembershipPlan.resolve() 在**读路径**上认（→ PRO），故无需 UPDATE 改写历史行。
+--   · 订单表里的 plan_credits / plan_days 本就存的是下单时的快照，发放只用快照，
+--     所以改了枚举既不影响历史未支付订单，也不影响已开通的会员。
+
+-- ==================== 用户头像（user-service） ====================
+-- user-service 是 ddl-auto: validate —— Hibernate **不会**自动建列，这段必须手工执行，
+-- 漏了的话启动直接报 schema validation 失败（找不到 avatar_url）。
+
+ALTER TABLE users ADD COLUMN avatar_url VARCHAR(500) AFTER nickname;
+
+-- 存量用户回填：随机分配一个默认头像。取值域与注册时新分配的完全一致
+-- （见 UserService.randomDefaultAvatar 的 1..9），前端把这 9 个 fixture 放在
+-- public/avatars/{n}.svg。只补 NULL 的，重复执行不会把用户自己换过的头像冲掉。
+UPDATE users SET avatar_url = CONCAT('default:', 1 + FLOOR(RAND() * 9)) WHERE avatar_url IS NULL;

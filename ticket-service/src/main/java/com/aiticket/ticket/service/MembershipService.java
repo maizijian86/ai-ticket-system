@@ -93,7 +93,7 @@ public class MembershipService {
     // ==================== 读：套餐 / 我的会员 / 订单 ====================
 
     /**
-     * 套餐列表。
+     * 套餐列表（Lite / Pro / Max，按枚举声明顺序 = 从低到高）。
      *
      * <p>做成**列表**而不是单个对象：以后加一档只改 {@link MembershipPlan}，前端一行不用动。
      * 需登录才能看，是因为前端只在登录后的会员页/个人主页上渲染它。
@@ -107,10 +107,31 @@ public class MembershipService {
                     .price(plan.price())
                     .credits(plan.credits())
                     .days(plan.days())
+                    .hallPromoted(plan.hallPromoted())
                     .desc(plan.description())
                     .build());
         }
         return plans;
+    }
+
+    /**
+     * 该用户当前生效的套餐（实时判定，非会员返回空）。
+     *
+     * <p>给 {@code TicketService.createTicket} 用 —— 它要在建单那一刻把"这一档带不带
+     * 大厅优先曝光"快照进 {@code ticket.member_promoted}。**这是全仓唯一一处
+     * "会员身份影响业务行为"的消费点**，此前 {@code isMember} 只用于展示。
+     *
+     * <p>不抛 401：调用方（建单）自己已经把未登录挡在外面了，这里再抛一次只会让
+     * 那个判断有两份、且两份都可能被改漏。userId 为 null 时直接当非会员。
+     *
+     * <p>未知的 plan_code（比如将来下线的档位）用 {@link MembershipPlan#resolve} 兜底，
+     * 查不出就当没有额外权益 —— 宁可少给一个曝光位，也不能因此让建单失败。
+     */
+    public Optional<MembershipPlan> activePlan(Long userId) {
+        if (userId == null) {
+            return Optional.empty();
+        }
+        return currentMembership(userId).flatMap(m -> MembershipPlan.resolve(m.getPlanCode()));
     }
 
     /**
@@ -135,7 +156,9 @@ public class MembershipService {
 
         return MembershipDTO.builder()
                 .isMember(active.isPresent())
-                .planCode(active.map(UserMembership::getPlanCode).orElse(null))
+                // 规范化：存量会员存的还是 MONTHLY_30（Pro 的前身），前端只该认识在售档位码
+                .planCode(active.map(m -> MembershipPlan.normalizeCode(m.getPlanCode())).orElse(null))
+                .planName(active.map(m -> MembershipPlan.displayNameOf(m.getPlanCode())).orElse(null))
                 .startedAt(active.map(UserMembership::getStartedAt).orElse(null))
                 .expiresAt(active.map(UserMembership::getExpiresAt).orElse(null))
                 .creditsGranted(active.map(UserMembership::getCreditsGranted).orElse(null))
@@ -419,7 +442,8 @@ public class MembershipService {
         return MembershipOrderDTO.builder()
                 .orderId(order.getId())
                 .outTradeNo(order.getOutTradeNo())
-                .planCode(order.getPlanCode())
+                .planCode(MembershipPlan.normalizeCode(order.getPlanCode()))
+                .planName(MembershipPlan.displayNameOf(order.getPlanCode()))
                 .planCredits(order.getPlanCredits())
                 .planDays(order.getPlanDays())
                 .amount(order.getAmount())

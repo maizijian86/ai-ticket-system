@@ -1,9 +1,12 @@
 package com.aiticket.ticket.service;
 
+import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.memory.chat.ChatMemoryProvider;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+
+import java.util.List;
 
 /**
  * 会话记忆管理器 —— 统一管理 AI 调用的记忆作用域。
@@ -62,6 +65,32 @@ public class ConversationMemoryManager {
      */
     public void chatScopeAndClear(Long ticketId) {
         reset(CHAT + ticketId);
+    }
+
+    /**
+     * 读出某个工单的 AI 对话历史 —— 给详情页的「对话」页签把历史气泡补回来。
+     *
+     * <p><b>读的是模型上下文本身，不是一份独立的聊天记录。</b> 几点后果，用之前要知道：
+     * <ul>
+     *   <li>存进去的「用户消息」是被拼过的 prompt（{@code 当前项目信息：…\n用户问题: xxx}），
+     *       不是在输入框里敲的原话 —— 剥掉那层是调用方（{@code TicketService}）的事；</li>
+     *   <li>窗口只有 {@code ChatMemoryConfig.MAX_MESSAGES} 条，更早的被挤掉了；</li>
+     *   <li>验收通过时会 {@link #chatScopeAndClear 销毁}，之后这里读出来是空的；</li>
+     *   <li>消息里没有时间戳（LangChain4j 的 {@code ChatMessage} 不带时间）。</li>
+     * </ul>
+     *
+     * <p>读不到就当没有 —— Redis 没起、key 过期、JSON 反序列化失败，全都返回空表。
+     * 这个方法的调用方是**详情页的一次渲染**，为它抛 500 等于让"看不到历史"升级成
+     * "页面打不开"，两者代价差得太远。与 {@link #reset} 同一个尺度。
+     */
+    public List<ChatMessage> chatHistory(Long ticketId) {
+        String memoryId = chatScope(ticketId);
+        try {
+            return chatMemoryProvider.get(memoryId).messages();
+        } catch (Exception e) {
+            log.warn("读取 AI 对话历史失败，按没有历史处理: {}", memoryId, e);
+            return List.of();
+        }
     }
 
     private String reset(String memoryId) {

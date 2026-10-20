@@ -63,10 +63,21 @@ public class JwtAuthenticationFilter implements GlobalFilter, Ordered {
      *       而 AI 接口是烧钱的；</li>
      *   <li>详情用 {@code \d+} 锚定，避免 {@code /stats}、{@code /my}、{@code /my/accepted}、
      *       {@code /completed} 这些同样以 {@code /api/v1/tickets/} 开头的接口被顺带放行。</li>
+     *   <li>{@code /membership/plans} 是**价目表**，不含任何用户数据 ——
+     *       {@code MembershipService.listPlans()} 连 userId 参数都没有，放行它不比公开一张
+     *       价目表多泄露什么。而首页面向访客的套餐卡只能有这一个数据源：{@code MembershipPlan}
+     *       的注释明确要求"价格与权益文案的唯一来源是后端，前端不写死"。**必须锚死这一条**，
+     *       写成 {@code /api/v1/membership/**} 会连 {@code /me}（余额与到期日）、
+     *       {@code /orders}（下单）一起放开。</li>
+     *   <li>{@code /users/avatar} 与 {@code /users/avatars} 是登录卡的"边输边显示头像"
+     *       和大厅卡片的发布者头像 —— 两者都发生在**没有登录态**的时候。放行范围必须
+     *       锚死到这两条：写成 {@code /api/v1/users/**} 会连 {@code /users/{id}}（带 email）、
+     *       {@code /users}（用户列表）、{@code /users/handlers} 一起放开。</li>
      * </ul>
      */
     private static final Pattern ANONYMOUS_READ_PATTERN = Pattern.compile(
-            "^/api/v1/tickets(/\\d+(/comments)?)?$");
+            "^(/api/v1/tickets(/\\d+(/comments)?)?|/api/v1/membership/plans"
+                    + "|/api/v1/users/(avatar|avatars))$");
 
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {

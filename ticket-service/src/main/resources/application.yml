@@ -34,12 +34,29 @@ spring:
 
   servlet:
     multipart:
-      max-file-size: 10MB
+      # 交付物（接单者「去完成」传的压缩包）要过这一层。**这一层是网，不是业务限额**：
+      # 真正对用户宣布的数字是 TicketService.DELIVERY_MAX_BYTES（10MB），所以这里要
+      # 留出一截余量（12MB），好让 10–12MB 的包落到业务那道检查上 —— 那里给的是
+      # 「这个包 11.0 MB，超过了 10.0 MB 上限」这种带数字的人话。
+      #
+      # 原来两处都写 10MB，结果业务那道**永远轮不到**：Tomcat 先抛，用户拿到的是
+      # 500 + 一句英文（实测 11MB 的包）。真超过这 12MB 的，兜底话术在
+      # common 的 GlobalExceptionHandler.handleMaxUploadSize 里。
+      max-file-size: 12MB
       max-request-size: 50MB
 
-# File upload
-file:
-  upload-dir: ./uploads
+# 阿里云 OSS（交付物上传）
+#
+# 与 user-service 的同一段配置是**同一套 AK** —— OssStorage 放在 common 就是为了
+# "一份 AK 全家用"（见它的类注释）。AK 只从环境变量来：yml 是提交进仓库的，
+# 写进去等于泄露，而且是"改一次要改历史提交"的那种泄露。
+# 没配 AK 时服务照常启动，只有真正要传文件那一步会报"OSS 未配置"。
+aliyun:
+  oss:
+    endpoint: ${OSS_ENDPOINT:oss-cn-beijing.aliyuncs.com}
+    bucket: ${OSS_BUCKET:java-ai-3197}
+    access-key-id: ${OSS_ACCESS_KEY_ID:}
+    access-key-secret: ${OSS_ACCESS_KEY_SECRET:}
 
 # 支付宝沙箱（会员支付）。密钥类字段的真值放 application-secret.yml（已 gitignore），
 # 这里只留 ${...:} 占位引用 —— 没配密钥服务照样能启动，只有"开通会员"那一步不可用。

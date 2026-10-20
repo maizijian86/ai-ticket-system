@@ -4,6 +4,7 @@ import com.aiticket.common.dto.PageResult;
 import com.aiticket.common.dto.Result;
 import com.aiticket.common.enums.Role;
 import com.aiticket.common.exception.BusinessException;
+import com.aiticket.common.storage.OssStorage;
 import com.aiticket.common.util.JwtUtil;
 import com.aiticket.user.dto.*;
 import com.aiticket.user.entity.User;
@@ -18,10 +19,19 @@ import org.springframework.data.domain.Sort;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 
+import java.io.IOException;
 import java.time.LocalDateTime;
+import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
+import java.util.UUID;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -34,6 +44,33 @@ public class UserService {
     private final PasswordEncoder passwordEncoder;
     private final JwtUtil jwtUtil;
     private final RefreshTokenService refreshTokenService;
+    private final OssStorage ossStorage;
+
+    // ==================== 头像 ====================
+
+    /**
+     * 默认头像的取值前缀，完整形态是 {@code default:1} ~ {@code default:9}。
+     *
+     * <p>对应的图是前端 fixture {@code frontend/public/avatars/{n}.svg}（9 个，来自
+     * 仓库根目录的 icon_tw0u8p192hc/）。**刻意不把这些图传到 OSS**：9 张永不改变的图
+     * 放 OSS 要付存储和每次请求的流量，而它们跟代码一样是版本化的资产，
+     * 放 public/ 里跟着前端一起发版才对。
+     *
+     * <p>改这个数字要同时改：前端那个 fixture 目录、以及 {@code db/migration.sql} 里
+     * 存量用户回填用的 {@code RAND() * 9}。三处不同步就会出现"回填出一个前端没有的 N"。
+     */
+    public static final String DEFAULT_AVATAR_PREFIX = "default:";
+    public static final int DEFAULT_AVATAR_COUNT = 9;
+
+    /** 头像单文件上限。前端会先压到 200×200，正常只有几十 KB —— 这是兜底。 */
+    private static final long AVATAR_MAX_BYTES = 2L * 1024 * 1024;
+
+    /**
+     * 允许的头像 MIME。白名单而不是黑名单：黑名单永远漏，而这里多拦一种格式的代价
+     * 只是用户换个格式，放进来一个可执行类型的代价则大得多。
+     */
+    private static final Set<String> AVATAR_ALLOWED_TYPES =
+            Set.of("image/jpeg", "image/png", "image/webp", "image/gif");
 
     /**
      * 自助注册时**允许**客户端指定的身份。
@@ -68,6 +105,9 @@ public class UserService {
         user.setPassword(passwordEncoder.encode(request.getPassword()));
         user.setEmail(request.getEmail());
         user.setNickname(request.getNickname() != null ? request.getNickname() : request.getUsername());
+        // 注册时随机发一个默认头像。发在这儿而不是"读的时候兜底"，是因为头像一旦定下
+        // 就不该再变 —— 若在 toDTO 里对 NULL 现算，同一个用户每次查出来的头像都不一样。
+        user.setAvatarUrl(randomDefaultAvatar());
         user.setRole(role != null ? role : Role.USER);
         user.setStatus("active");
         user.setGithubUsername(request.getGithubUsername());
@@ -119,7 +159,8 @@ public class UserService {
                 user.getId(),
                 user.getUsername(),
                 user.getRole().name(),
-                user.getNickname()
+                user.getNickname(),
+                displayAvatar(user.getAvatarUrl())
         );
     }
 
@@ -146,7 +187,8 @@ public class UserService {
                 user.getId(),
                 user.getUsername(),
                 user.getRole().name(),
-                user.getNickname()
+                user.getNickname(),
+                displayAvatar(user.getAvatarUrl())
         );
     }
 
@@ -245,6 +287,210 @@ public class UserService {
         log.info("User deleted: {}", user.getUsername());
     }
 
+    // ==================== 头像 ====================
+
+    /**
+     * 上传自定义头像。
+     *
+     * <p><b>刻意不加 {@code @Transactional}</b>，与 {@code AiQuotaGate} 是同一个理由：
+     * 传 OSS 是一次网络调用，不该夹在事务里占着数据库连接（Hikari 池只有 10 条）。
+     * 真正的写库只有一次单行 save，{@code SimpleJpaRepository} 自己就带了短事务。
+     *
+     * <p>顺序是**先传 OSS、再写库**：反过来的话，写库成功而上传失败就会留下一个指向
+     * 不存在对象的 avatar_url，前端表现为裂图；现在这样最坏只是留一个孤儿对象，
+     * 而孤儿对象下次换头像时会被同一个 key 前缀下的新对象自然取代。
+     */
+    public UserDTO updateAvatar(Long userId, MultipartFile file) {
+        User user = requireUser(userId);
+
+        if (file == null || file.isEmpty()) {
+            throw new BusinessException(400, "请选择要上传的图片");
+        }
+        if (file.getSize() > AVATAR_MAX_BYTES) {
+            throw new BusinessException(400, "头像不能超过 2MB");
+        }
+        String contentType = file.getContentType() == null
+                ? null : file.getContentType().toLowerCase(Locale.ROOT);
+        if (contentType == null || !AVATAR_ALLOWED_TYPES.contains(contentType)) {
+            throw new BusinessException(400, "头像只支持 JPG / PNG / WebP / GIF 格式");
+        }
+
+        byte[] content;
+        try {
+            content = file.getBytes();
+        } catch (IOException e) {
+            throw new BusinessException(500, "读取上传文件失败");
+        }
+
+        // key 带 userId 是为了排查时一眼看出这图是谁的；带随机 uuid 是为了让**每次换头像
+        // 都是新 key** —— 若固定成 avatar/{userId}.png，浏览器会命中旧图的缓存，
+        // "换了头像但页面没变"会成为一个反复出现的假 bug。
+        String key = "avatar/" + userId + "/" + UUID.randomUUID().toString().replace("-", "")
+                + "." + extensionOf(contentType);
+        ossStorage.upload(key, content, contentType);
+
+        String oldAvatar = user.getAvatarUrl();
+        user.setAvatarUrl(key);
+        user = userRepository.save(user);
+        deleteOldObject(oldAvatar);
+
+        log.info("Avatar updated: userId={}, key={}, size={}B", userId, key, content.length);
+        return toDTO(user);
+    }
+
+    /**
+     * 换成一个默认头像。
+     *
+     * <p>只接受 {@code default:1} ~ {@code default:9}。**不接受任意 URL** —— 那等于让
+     * 客户端往 avatar_url 里写任何地址，其他用户的 img 会去请求它，是个现成的投毒口子。
+     *
+     * <p>前端的「换一个」按钮是自己摇一个数再传上来，服务端不为"帮我随机"多开口子。
+     */
+    public UserDTO setDefaultAvatar(Long userId, String avatarUrl) {
+        User user = requireUser(userId);
+
+        if (!isDefaultAvatar(avatarUrl)) {
+            throw new BusinessException(400,
+                    "无效的默认头像标识，应为 " + DEFAULT_AVATAR_PREFIX + "1 ~ "
+                            + DEFAULT_AVATAR_PREFIX + DEFAULT_AVATAR_COUNT);
+        }
+
+        String oldAvatar = user.getAvatarUrl();
+        user.setAvatarUrl(avatarUrl);
+        user = userRepository.save(user);
+        deleteOldObject(oldAvatar);
+
+        log.info("Avatar set to default: userId={}, avatarUrl={}", userId, avatarUrl);
+        return toDTO(user);
+    }
+
+    /**
+     * 匿名可读：按用户名查一个头像，给登录卡"边输边显示头像"用。
+     *
+     * <p>**查不到时返回 null 而不是 404**。这不是偷懒：前端的响应拦截器把所有非 200 的
+     * 业务码都弹成 toast，登录卡每敲一次用户名就弹一句"User not found"，等于把正常的
+     * 输入过程变成报错现场。未知用户在这里是正常状态，不是错误。
+     *
+     * <p>返回体刻意只有 username / nickname / avatarUrl —— 这条路径在网关白名单上，
+     * 匿名可达，email、role 之类的字段一个都不能带出去（见 {@link UserAvatarDTO}）。
+     */
+    public UserAvatarDTO getAvatarByUsername(String username) {
+        if (username == null || username.isBlank()) {
+            return null;
+        }
+        return userRepository.findByUsername(username)
+                .map(u -> UserAvatarDTO.builder()
+                        .username(u.getUsername())
+                        .nickname(u.getNickname())
+                        .avatarUrl(displayAvatar(u.getAvatarUrl()))
+                        .build())
+                .orElse(null);
+    }
+
+    /**
+     * 批量取头像，给大厅一页卡片上的发布者用（一次请求解掉 N+1）。
+     *
+     * <p>返回 id → 头像地址。**不存在的 id 不出现在结果里**，不补 null 占位 ——
+     * 前端拿到缺失的 id 自然走首字母兜底，占位反而会让"没查到的空白"和
+     * "查到了但没头像"混成同一种状态。
+     */
+    public Map<Long, String> getAvatars(Collection<Long> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return Map.of();
+        }
+        Set<Long> distinct = ids.stream().filter(Objects::nonNull).collect(Collectors.toSet());
+        if (distinct.isEmpty()) {
+            return Map.of();
+        }
+        Map<Long, String> result = new HashMap<>();
+        for (User user : userRepository.findAllById(distinct)) {
+            String avatar = displayAvatar(user.getAvatarUrl());
+            if (avatar != null) {
+                result.put(user.getId(), avatar);
+            }
+        }
+        return result;
+    }
+
+    /**
+     * 库里存的 {@code avatar_url} → 前端能直接用的地址。
+     *
+     * <ul>
+     *   <li>{@code default:N} 原样返回，前端映射到 {@code /avatars/N.svg}；</li>
+     *   <li>OSS 对象 key 拼成 https 公网地址（bucket 是公共读，见 OssStorage.publicUrl）；</li>
+     *   <li>OSS 没配好时返回 null —— 宁可让前端显示首字母兜底，也不要把裸 key 交给
+     *       {@code <img>}：{@code src="avatar/1/x.png"} 会去请求当前站点下的相对路径，
+     *       裂得毫无线索。</li>
+     * </ul>
+     */
+    private String displayAvatar(String avatarUrl) {
+        if (avatarUrl == null || avatarUrl.isBlank()
+                || avatarUrl.startsWith(DEFAULT_AVATAR_PREFIX)) {
+            return avatarUrl;
+        }
+        return ossStorage.publicUrl(avatarUrl);
+    }
+
+    /** 取当前登录用户；userId 为 null 说明网关没注入身份（未登录或直连） */
+    private User requireUser(Long userId) {
+        if (userId == null) {
+            throw new BusinessException(401, "请先登录");
+        }
+        return userRepository.findById(userId)
+                .orElseThrow(() -> new BusinessException(404, "User not found"));
+    }
+
+    /** 合法取值是 1..{@link #DEFAULT_AVATAR_COUNT}，越界一律拒掉 */
+    private static boolean isDefaultAvatar(String value) {
+        if (value == null || !value.startsWith(DEFAULT_AVATAR_PREFIX)) {
+            return false;
+        }
+        try {
+            int n = Integer.parseInt(value.substring(DEFAULT_AVATAR_PREFIX.length()));
+            return n >= 1 && n <= DEFAULT_AVATAR_COUNT;
+        } catch (NumberFormatException e) {
+            return false;
+        }
+    }
+
+    /**
+     * 旧值是不是"我们自己 OSS 里的对象 key"。
+     *
+     * <p>判据取"不等于默认头像前缀"而不是"看起来像个路径"：库里只可能存这两种形态
+     * （写入路径只有 {@link #updateAvatar} 和 {@link #setDefaultAvatar}，都由本类把守）。
+     * 存量 NULL（migration 没跑过的库）判成 false —— 没有旧对象可删。
+     */
+    private static boolean isOssKey(String value) {
+        return value != null && !value.startsWith(DEFAULT_AVATAR_PREFIX);
+    }
+
+    /**
+     * 删掉被替换下来的旧头像对象。
+     *
+     * <p>只删 OSS key。把 {@code "default:3"} 当 key 去删会报 KeyNotFound ——
+     * 虽然 {@link OssStorage#delete} 会吞掉异常，但那样每次换默认头像都打一条 warn，
+     * 是没意义的噪音。
+     */
+    private void deleteOldObject(String oldAvatar) {
+        if (isOssKey(oldAvatar)) {
+            ossStorage.delete(oldAvatar);
+        }
+    }
+
+    private static String extensionOf(String contentType) {
+        return switch (contentType) {
+            case "image/png" -> "png";
+            case "image/webp" -> "webp";
+            case "image/gif" -> "gif";
+            default -> "jpg";
+        };
+    }
+
+    private static String randomDefaultAvatar() {
+        return DEFAULT_AVATAR_PREFIX
+                + (1 + ThreadLocalRandom.current().nextInt(DEFAULT_AVATAR_COUNT));
+    }
+
     public UserSkillDTO getUserSkill(Long userId) {
         UserSkill skill = userSkillRepository.findByUserId(userId)
                 .orElseThrow(() -> new BusinessException(404, "User skill profile not found"));
@@ -313,6 +559,7 @@ public class UserService {
                 .username(user.getUsername())
                 .email(user.getEmail())
                 .nickname(user.getNickname())
+                .avatarUrl(displayAvatar(user.getAvatarUrl()))
                 .role(user.getRole())
                 .status(user.getStatus())
                 .lastLoginAt(user.getLastLoginAt())

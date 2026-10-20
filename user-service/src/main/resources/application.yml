@@ -8,6 +8,16 @@ spring:
   application:
     name: user-service
 
+  # 头像上传。Spring Boot 默认是单文件 1MB / 整请求 10MB —— 1MB 对"前端已压到
+  # 200×200"来说够用，但前端压缩一旦失败（比如某些浏览器读不出 canvas），
+  # 用户会撞上一个只说 "Maximum upload size exceeded" 的 500，很难自查。
+  # 放到 2MB，与服务端 UserService 里那道 AVATAR_MAX_BYTES 校验对齐：
+  # 这里放行、那里给出人话错误。
+  servlet:
+    multipart:
+      max-file-size: 2MB
+      max-request-size: 4MB
+
   datasource:
     url: jdbc:mysql://localhost:3306/aiticket?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
     username: root
@@ -28,6 +38,22 @@ spring:
       host: localhost
       port: 6379
       database: 0
+
+# 阿里云 OSS（用户头像）。
+#
+# **AK 一律走环境变量，绝不写在这个文件里** —— 本文件是提交进仓库的，写死就等于泄露，
+# 而且是"要改历史提交才能补救"的那种。机器上已配好 OSS_ACCESS_KEY_ID /
+# OSS_ACCESS_KEY_SECRET（用户自己设的 Windows 环境变量）。
+#
+# endpoint 与 bucket 写了默认值：这两个**不是凭证**，bucket 名和地域写在代码里跟写在
+# 配置文件里一样公开，泄露不了任何东西（能拿它做的最多是把公共读的图读走，那本来就是公开的）。
+# 仍然留成 ${VAR:default} 的形态，是为了换环境（测试/生产分两个 bucket）时不用改代码。
+aliyun:
+  oss:
+    endpoint: ${OSS_ENDPOINT:oss-cn-beijing.aliyuncs.com}
+    bucket: ${OSS_BUCKET:java-ai-3197}
+    access-key-id: ${OSS_ACCESS_KEY_ID:}
+    access-key-secret: ${OSS_ACCESS_KEY_SECRET:}
 
 jwt:
   secret: aiticket-jwt-secret-key-change-in-production-min-256-bits

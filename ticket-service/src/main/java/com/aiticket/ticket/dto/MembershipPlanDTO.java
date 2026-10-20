@@ -26,5 +26,13 @@ public class MembershipPlanDTO {
     /** 有效期天数 */
     private Integer days;
 
+    /**
+     * 本档位发布的工单是否在大厅优先曝光（目前只有 Max 为 true）。
+     *
+     * <p>由后端下发而不是前端按档位名写死：这是**权益**，不是文案 —— 前端把
+     * "MAX 显示置顶图标"写死的话，以后调整哪一档带曝光就要改两个仓库。
+     */
+    private Boolean hallPromoted;
+
     private String desc;
 }
