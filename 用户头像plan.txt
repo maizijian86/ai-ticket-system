@@ -1,0 +1,157 @@
+用户头像 plan（2026-10-16 施工稿）
+分支：feat/react-rewrite
+
+====================================================================
+零、这份文档的定位
+====================================================================
+范围**只有后端**：用户头像（9 个默认头像注册时随机分配 + 自定义上传到阿里云 OSS）。
+
+- 原「工单 AI 配图」已按用户要求**整块删除**（2026-10-16）。上一版文档里关于
+  生图的一切 —— 路线 A、DRAFT 状态、AiFeature.COVER_IMAGE 额度槽位、万相 API、
+  临时 URL 转存、提示词拼装 —— **全部作废，不要再参考**。TicketStatus 不用动，
+  ai_usage 不用动，ticket 表不用动。
+- **前端本次不做**。落点已定（只做 React、新建 profile 页），但这一版只交付后端。
+
+后端**已于 2026-10-16 落地并通过编译**（JDK 17，common 16 个源文件 + user-service
+18 个，零错误零警告）。清单见第三节。
+
+====================================================================
+一、已定的事（用户拍板，不要再问）
+====================================================================
+1. **生图不要了**，只做头像。
+2. 默认头像：**注册时从 9 个里随机分配一个，此后用户不主动改就不变**。
+   图在仓库根 `icon_tw0u8p192hc/`（9 个 SVG，200×200，带彩色圆底）。
+   注意文件名不一致：`1_user.svg`、`1_user3~10.svg`（**没有 2**），
+   拷进前端时要统一重命名成 `1.svg`~`9.svg`。
+3. 支持用户上传自定义头像，存阿里云 OSS。
+4. **只做后端**，前端展示先不写。
+5. 前端落点（后续才做）：**只做 React**，新建 profile 页。
+
+====================================================================
+二、现状勘察（开工前的事实）
+====================================================================
+· **`users` 表原本没有任何头像字段**（db/schema.sql:9）。全仓 `grep avatar` 在
+  Java 侧零命中 —— 命中的全是前端组件名（`ui/avatar.tsx`、`AppLayout.vue` 的
+  `.user-avatar` 样式），跟数据无关。
+· **user-service 是 `ddl-auto: validate`**（application.yml），Hibernate **不会**
+  自动建列，加字段必须手工 DDL。这一点和 ticket-service（`update`）不同，别记混。
+· **网关不用改**：`/api/v1/users/**` 已经路由到 user-service
+  （api-gateway/.../application.yml:24-27）。
+· **前端登录后不会回头调 `/users/{id}`**：React 的 authStore 直接拿 `LoginResponse`
+  拼出 userInfo 存 localStorage（stores/authStore.ts:60-72）。所以**登录响应里必须
+  带头像**，否则用户登录后顶栏是空的，要等刷新才补上。
+· **React 是唯一在跑的前端**：index.html 加载 `/src/main.tsx`。Vue 那套
+  （main.ts / App.vue / views/）从 P2 起已不运行，动它是"给尸体做手术"。
+· **React 侧已有现成的 Avatar 组件**（components/ui/avatar.tsx，shadcn/Base UI），
+  前端展示时直接用，不用自己写。
+· `file_attachment` 表是空壳（全仓 0 行 Java 引用），**与本次无关**。
+
+====================================================================
+三、后端改动清单（已完成，2026-10-16）
+====================================================================
+| 文件 | 改动 |
+|---|---|
+| db/schema.sql | users 加 `avatar_url VARCHAR(500)`（列注释写了两种取值） |
+| db/migration.sql | 末尾追加 `ALTER TABLE users ADD COLUMN avatar_url` + 存量回填 |
+| common/pom.xml | 加 `aliyun-sdk-oss:3.18.1` + JAXB 三个包 |
+| common/.../storage/OssProperties.java | **新建**，`@ConfigurationProperties("aliyun.oss")` |
+| common/.../storage/OssStorage.java | **新建**，上传/删除/拼地址，客户端懒建 |
+| user-service/.../entity/User.java | 加 `avatarUrl` |
+| user-service/.../dto/UserDTO.java | 加 `avatarUrl` |
+| user-service/.../dto/LoginResponse.java | 加 `avatarUrl`（见二节第 4 条） |
+| user-service/.../dto/SetAvatarRequest.java | **新建**，只收 `default:N` |
+| user-service/.../service/UserService.java | 注册随机分配 + updateAvatar + setDefaultAvatar |
+| user-service/.../controller/UserController.java | `POST /me/avatar`、`PUT /me/avatar` |
+| user-service/.../application.yml | multipart 限制 + `aliyun.oss` 配置段 |
+
+新增两个接口（都在 `/api/v1/users` 下，网关自动覆盖）：
+
+  POST /api/v1/users/me/avatar   multipart，字段名固定 `file`
+                                 校验：≤2MB、MIME 白名单（jpg/png/webp/gif）
+                                 成功返回更新后的 UserDTO
+
+  PUT  /api/v1/users/me/avatar   {"avatarUrl":"default:3"}，只收 default:1~9
+
+**两条都走 `/me`，路径里不带 id**，身份取自网关注入的 `X-User-Id`（与
+AuthController.logout 同一套）。带 id 的话任何人都能改别人的头像 —— 网关只校验
+"登录了没"，不校验"这个 id 是不是你"。
+
+### 几个刻意的实现选择（改之前先读）
+
+1. **`updateAvatar` 刻意不加 `@Transactional`**，与 `AiQuotaGate` 同一个理由：
+   传 OSS 是网络调用，不该夹在事务里占着数据库连接（Hikari 池只有 10 条）。
+   真正的写库只有一次单行 save，`SimpleJpaRepository` 自己就带短事务。
+2. **顺序是先传 OSS、再写库**：反过来的话，写库成功而上传失败会留下一个指向不存在
+   对象的 `avatar_url`，前端表现为裂图。现在这样最坏只是留一个孤儿对象。
+3. **key 里带随机 uuid**（`avatar/{userId}/{uuid}.png`）：固定成 `avatar/{userId}.png`
+   的话浏览器会命中旧图缓存，"换了头像但页面没变"会变成一个反复出现的假 bug。
+4. **换头像时删旧对象**，但只删 OSS key —— 把 `"default:3"` 当 key 去删会报
+   KeyNotFound（判据见 `UserService.isOssKey`）。
+5. **`SetAvatarRequest` 只收 `default:N`，不接受任意 URL**。否则客户端能往
+   `avatar_url` 里写任何地址，其他用户的 img 会去请求它，是个现成的投毒口子。
+6. **默认头像不进 OSS**。9 张永不改变的图放 OSS 要付存储和每次请求的流量，而它们
+   跟代码一样是版本化资产，放 `frontend/public/avatars/` 跟着前端发版才对。
+
+====================================================================
+四、OSS 配置
+====================================================================
+`user-service/src/main/resources/application.yml` 末尾：
+
+    aliyun:
+      oss:
+        endpoint: ${OSS_ENDPOINT:oss-cn-beijing.aliyuncs.com}
+        bucket:   ${OSS_BUCKET:java-ai-3197}
+        access-key-id:     ${OSS_ACCESS_KEY_ID:}
+        access-key-secret: ${OSS_ACCESS_KEY_SECRET:}
+
+**AK 走环境变量，绝不写进 yml** —— yml 是提交进仓库的，写死就等于泄露，而且是"要改
+历史提交才能补救"的那种。机器上已配好 `OSS_ACCESS_KEY_ID` / `OSS_ACCESS_KEY_SECRET`。
+
+endpoint 与 bucket **写了默认值**：这两个不是凭证，bucket 名和地域写在代码里跟写在配置
+文件里一样公开。仍留成 `${VAR:default}` 的形态，是为了日后换环境（比如测试/生产分两个
+bucket）时不用改代码。当前值：地域**北京**，bucket `java-ai-3197`。
+
+### 读图方式：bucket 公共读（已实测确认）
+`OssStorage.publicUrl(key)` 直接拼 `https://{bucket}.{endpoint}/{key}`，**不做签名**。
+
+2026-10-16 用一次性探针真连过：`putObject` 通过、**匿名 GET 返回 200**、
+`deleteObject` 通过 —— AK 可用、权限齐全、bucket 确实是公共读。所以这个方法成立，
+**不需要**改成下面那条签名路径。
+理由：头像本来就是给所有人看的，无保密需求；签名 URL 有有效期，浏览器缓存和分享链接
+都会失效；而且大厅列表 N 条记录就要 N 次签名（N+1 问题）。
+
+**若 bucket 是私有读**，把这个方法换成已经写好的 `OssStorage.signedUrl(key, seconds)`
+即可 —— 那个方法是为此预留的，当前没有调用方。
+
+### RAM 权限建议
+给这个子账号只授这一个 bucket 的 `oss:PutObject` / `oss:GetObject` / `oss:DeleteObject`，
+别用主账号 AK。
+
+### 数据库迁移
+user-service 是 `ddl-auto: validate`，**必须手工执行** `db/migration.sql` 末尾那两句
+（ALTER + 存量回填），否则启动直接报 schema validation 找不到 `avatar_url`。
+
+====================================================================
+五、前端待做（**不在本次范围**，仅记录方向）
+====================================================================
+· **只做 React**，新建 profile 页（`/profile` 现在还是 Placeholder）。
+· 默认头像 9 个从 `icon_tw0u8p192hc/` 重命名后放 `frontend/public/avatars/1..9.svg`。
+· 展示层用现成的 `components/ui/avatar.tsx`。
+· `avatarUrl` 以 `default:` 开头就映射本地静态图，否则当 OSS URL 直接用。
+· 上传前前端裁剪 1:1 + 压到 200×200（减小传输，也是服务端 2MB 限制的前提）。
+· **留言 / 私聊 / 工单详情里的头像**：那三页在 React 里还都是 Placeholder
+  （router/index.tsx:41-46），等它们迁移时顺手加，现在做在 Vue 上是白做。
+
+====================================================================
+六、坑与注意事项
+====================================================================
+1. **JDK 17 下 JAXB 必须补齐**（已加进 common/pom.xml）。少了它编译期一切正常，
+   **第一次真正发请求才**抛 `NoClassDefFoundError: javax/xml/bind/DatatypeConverter`
+   —— 一个很难联想到"缺依赖"的报错。版本按官方那组配，别自己升 jaxb-runtime 到 4.x。
+2. **groupId 是 `com.aliyun.oss`**，不是老教程里的 `com.aliyun`（后者根本拉不到）。
+3. **命令行 mvn 必须用 JDK 17**：`JAVA_HOME=~/.jdks/ms-17.0.15`。JDK 24 下 Lombok
+   会静默失效，报的是一堆假错误。
+4. **multipart 默认单文件上限 1MB**，已在 application.yml 提到 2MB，与服务端那道
+   `AVATAR_MAX_BYTES` 校验对齐（这里放行、那里给人话错误）。
+5. **存量用户**：migration 里的回填只补 `avatar_url IS NULL` 的行，重复执行不会把
+   用户自己换过的头像冲掉。
