@@ -1,5 +1,22 @@
 -- AI Ticket System Database Schema
 -- MySQL 8.x
+--
+-- ⚠️ 两条必须遵守的约定（都是被 ddl-auto=validate 真实拦下来过才补上的）：
+--
+-- 1) Boolean 列一律写 BIT(1)，不要写 TINYINT(1) / BOOLEAN。
+--    MySQL 的 BOOLEAN 只是 TINYINT(1) 的别名，JDBC 报的是 Types#TINYINT，
+--    而 Hibernate 对 Java Boolean 期望 Types#BOOLEAN（MySQL 那边就是 bit）。
+--    `ddl-auto: validate` 会直接报
+--    `wrong column type encountered in column [x]; found [tinyint], but expecting [bit]`。
+--    （`ddl-auto: update` 不会校验，所以这个问题能藏很久 —— 只在新建库 + validate 时炸。）
+--
+-- 2) 本文件必须与实体逐列对齐，包括 BaseEntity 的 updated_at / deleted_at。
+--    历史教训：ticket 表曾有 10 列只写在 db/migration.sql 里，
+--    于是拿本文件建库后 db/seed/*.sql 全部 `ERROR 1054 Unknown column`。
+--
+-- 校验方式（改完本文件后必跑）：建一个临时库 → 导入 schema.sql → 用
+--   SPRING_JPA_HIBERNATE_DDL_AUTO=validate 起 ticket-service
+-- 必须能正常 Started，而不是 Schema-validation 报错。
 
 -- ============================================
 -- User & Auth Tables
@@ -116,13 +133,13 @@ CREATE TABLE ticket (
     -- 发布者发布时预附的 1 次 AI 额度：接单人用「AI分析与对话」不扣自己的次数。
     -- 只用于大厅置顶与打标（展示标记），**不是**解锁判据 ——
     -- 解锁与否永远只看 ai_usage 里那行 (ticket_id, feature=ANALYSIS, status=SUCCESS)。
-    ai_prepaid      TINYINT(1) NOT NULL DEFAULT 0,
+    ai_prepaid      BIT(1) NOT NULL DEFAULT b'0',
 
     -- 发布这张单的人在建单那一刻是带「大厅优先曝光」权益的会员（目前只有 Max 档）。
     -- 与 ai_prepaid 完全同构：纯展示/排序标记，大厅按
     -- `member_promoted DESC, ai_prepaid DESC, created_at DESC` 排。
     -- 刻意是发布时的快照、不随会员到期收回，也不给老单回填（见 Ticket.memberPromoted）。
-    member_promoted TINYINT(1) NOT NULL DEFAULT 0,
+    member_promoted BIT(1) NOT NULL DEFAULT b'0',
 
     -- Completion proof (GitHub link or other)
     completion_proof TEXT,
@@ -138,6 +155,34 @@ CREATE TABLE ticket (
     -- Rejection reason (when user rejects completion)
     rejection_reason TEXT,
 
+    -- ==================== 开发者需求字段 ====================
+    -- 以下 10 列此前只写在 db/migration.sql 里，schema.sql 一直没有。
+    -- 后果：拿本文件建一个干净库，db/seed/real_tickets.sql 必定
+    -- `ERROR 1054 Unknown column`。以前能跑只是因为 ticket-service 设了
+    -- `ddl-auto: update`，启动时把缺的列悄悄补上了 —— 靠副作用蒙对，换台机器就炸。
+    -- 类型逐条对齐 Ticket.java 的字段声明与 migration.sql 第 2-17 行。
+
+    -- 技术栈（如：Spring Boot, Vue, MyBatis）
+    tech_stack          VARCHAR(500),
+    -- 项目类型（JavaWeb / Python / 前端 / 全栈 / 移动端）
+    project_type        VARCHAR(50),
+    -- 预算
+    budget              DECIMAL(10,2),
+    -- 截止日期
+    deadline            DATETIME,
+    -- 详细需求描述
+    detailed_requirements TEXT,
+
+    -- ==================== AI 生成内容 ====================
+    -- 由 POST /api/v1/tickets/{id}/ai-analysis 与 GET /{id}/download-prd 读写
+    ai_prd              TEXT,
+    ai_tech_suggestion  TEXT,
+    ai_task_breakdown   TEXT,
+    ai_estimated_hours  INT,
+
+    -- 是否在大厅显示（接单后隐藏）
+    is_visible          BIT(1) DEFAULT b'1',
+
     -- Soft delete
     deleted_at      DATETIME,
 
@@ -147,6 +192,9 @@ CREATE TABLE ticket (
     INDEX idx_ticket_creator (creator_id),
     INDEX idx_ticket_handler (handler_id),
     INDEX idx_ticket_created (created_at DESC),
+    -- 大厅查询用：is_visible = 1 过滤 + project_type 筛选（见 TicketService.listTickets）
+    INDEX idx_is_visible (is_visible),
+    INDEX idx_project_type (project_type),
     FULLTEXT INDEX ft_ticket_content (title, content)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -159,10 +207,10 @@ CREATE TABLE ticket_comment (
     content         TEXT NOT NULL,
 
     -- Internal note (handler only)
-    is_internal     BOOLEAN DEFAULT FALSE,
+    is_internal         BIT(1) DEFAULT b'0',
 
     -- AI suggested reply
-    is_ai_suggested BOOLEAN DEFAULT FALSE,
+    is_ai_suggested BIT(1) DEFAULT b'0',
 
     -- AI reference sources (JSON array)
     ai_references      JSON,
@@ -183,6 +231,8 @@ CREATE TABLE ticket_chat (
     sender_role     VARCHAR(20),  -- USER or HANDLER
     content         TEXT NOT NULL,
     created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+    -- BaseEntity 带 @UpdateTimestamp，缺这一列时 Hibernate 启动校验（validate）会直接失败
+    updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     deleted_at      DATETIME DEFAULT NULL,
 
     FOREIGN KEY (ticket_id) REFERENCES ticket(id) ON DELETE CASCADE,
@@ -338,6 +388,7 @@ CREATE TABLE project_module (
     completed_tasks INT DEFAULT 0,
     created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at      DATETIME DEFAULT NULL COMMENT 'BaseEntity 软删列，ProjectTaskRepository 等按它过滤',
 
     INDEX idx_module_project (project_id),
     FOREIGN KEY (project_id) REFERENCES project(id) ON DELETE CASCADE
@@ -375,6 +426,7 @@ CREATE TABLE project_task (
 
     created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at      DATETIME DEFAULT NULL,
 
     INDEX idx_task_project (project_id),
     INDEX idx_task_module (module_id),
@@ -396,6 +448,7 @@ CREATE TABLE milestone (
     sort_order      INT DEFAULT 0,
     created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at      DATETIME DEFAULT NULL,
 
     INDEX idx_milestone_project (project_id),
     FOREIGN KEY (project_id) REFERENCES project(id) ON DELETE CASCADE
@@ -410,8 +463,10 @@ CREATE TABLE project_discussion (
     user_id         BIGINT NOT NULL,
     user_name       VARCHAR(100),
     content         TEXT NOT NULL,
-    is_ai_suggested BOOLEAN DEFAULT FALSE,
+    is_ai_suggested BIT(1) DEFAULT b'0',
     created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at      DATETIME DEFAULT NULL,
 
     INDEX idx_discussion_project (project_id),
     INDEX idx_discussion_target (target_type, target_id),
@@ -456,7 +511,7 @@ CREATE TABLE ai_usage (
     user_id         BIGINT       NOT NULL COMMENT '消耗者(接单人)',
     feature         VARCHAR(20)  NOT NULL COMMENT 'ANALYSIS(分析+对话) / PRD；CHAT 为历史值',
     status          VARCHAR(20)  NOT NULL COMMENT 'RESERVED / SUCCESS / REFUNDED',
-    active_slot     TINYINT      DEFAULT 1 COMMENT '1=占用中; NULL=已释放(失败可重试)',
+    active_slot     INT          DEFAULT 1 COMMENT '1=占用中; NULL=已释放(失败可重试)。实体是 Integer，故必须是 INT 而不是 TINYINT —— 否则 ddl-auto=validate 会报 wrong column type',
     batch_id        BIGINT       DEFAULT NULL COMMENT '实际扣减的批次,退款回滚到同一批',
     amount          INT          NOT NULL DEFAULT 1,
     failure_reason  VARCHAR(500) DEFAULT NULL,
@@ -479,7 +534,7 @@ CREATE TABLE user_membership (
     credits_granted INT         NOT NULL COMMENT '本周期发放次数(Lite 10 / Pro 30 / Max 120)',
     started_at      DATETIME    NOT NULL,
     expires_at      DATETIME    NOT NULL COMMENT 'started_at + 30 天',
-    auto_renew      TINYINT     DEFAULT 0,
+    auto_renew      BIT(1)      DEFAULT b'0',
     created_at      DATETIME    DEFAULT CURRENT_TIMESTAMP,
     updated_at      DATETIME    DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     deleted_at      DATETIME    DEFAULT NULL,
