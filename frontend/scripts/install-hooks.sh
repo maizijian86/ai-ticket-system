@@ -21,4 +21,4 @@ tr -d '\r' < "$src" > "$dst"
 chmod +x "$dst"
 
 echo "已安装 pre-commit 钩子 -> $dst"
-echo "钩子会在有 frontend/ 改动时跑 vue-tsc；改后端不受影响。"
+echo "钩子会在有 frontend/ 改动时跑 tsc；改后端不受影响。"

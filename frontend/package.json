@@ -4,31 +4,22 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vue-tsc && vite build",
+    "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "type-check": "vue-tsc --noEmit",
-    "check:sfc-lang": "node scripts/check-sfc-lang.mjs",
-    "verify": "npm run check:sfc-lang && npm run type-check"
+    "type-check": "tsc --noEmit",
+    "audit:reach": "node scripts/audit-reach.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.9.0",
-    "@element-plus/icons-vue": "^2.3.1",
     "@fontsource-variable/geist": "^5.3.0",
     "@hookform/resolvers": "^5.9.1",
     "@tailwindcss/vite": "^4.3.3",
     "axios": "^1.6.8",
     "class-variance-authority": "^0.7.1",
     "cn": "^0.4.0",
-    "date-fns": "^4.4.0",
-    "element-plus": "^2.6.3",
     "gsap": "^3.15.0",
     "lucide-react": "^1.56.0",
-    "motion": "^14.2.0",
-    "next-themes": "^0.4.6",
-    "ogl": "^1.0.11",
-    "pinia": "^2.1.7",
     "react": "^19.3.0",
-    "react-day-picker": "^10.0.2",
     "react-dom": "^19.3.0",
     "react-hook-form": "^7.90.0",
     "react-router-dom": "^7.18.4",
@@ -36,8 +27,6 @@
     "sonner": "^2.0.8",
     "tailwindcss": "^4.3.3",
     "tw-animate-css": "^1.4.0",
-    "vue": "^3.4.21",
-    "vue-router": "^4.3.0",
     "zod": "^3.25.76",
     "zustand": "^5.0.15"
   },
@@ -46,9 +35,7 @@
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^4.7.0",
-    "@vitejs/plugin-vue": "^5.0.4",
     "typescript": "^5.4.3",
-    "vite": "^5.2.6",
-    "vue-tsc": "^2.0.7"
+    "vite": "^5.2.6"
   }
 }

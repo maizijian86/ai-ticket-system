@@ -10,7 +10,7 @@
     "resolveJsonModule": true,
     "isolatedModules": true,
     "noEmit": true,
-    // 要能 import 那些原样引入的 .jsx（React 组件），否则 vue-tsc 会报 TS2307。
+    // 要能 import 那些原样引入的 .jsx（reactbits 上游组件），否则 tsc 会报 TS2307。
     // checkJs 不开：那些文件是上游源码，不该被本项目的规则挑刺。
     "allowJs": true,
     // 原来是 "preserve"（Vue 官方模板给 vue-tsc 用的）。改成 react-jsx：
@@ -24,6 +24,7 @@
       "@/*": ["./src/*"]
     }
   },
-  "include": ["src/**/*.ts", "src/**/*.tsx", "src/**/*.jsx", "src/**/*.vue"],
+  // Vue 迁移收尾后 .vue 已全部删除（见 Phase 2），这里不再需要 "src/**/*.vue"。
+  "include": ["src/**/*.ts", "src/**/*.tsx", "src/**/*.jsx"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }
