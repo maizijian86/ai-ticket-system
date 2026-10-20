@@ -313,6 +313,24 @@ public class TicketService {
             ticket.setPrice(request.getPrice());
         }
 
+        // 开发者需求字段（2026-10 补）：此前只认上面那几个，导致预算/截止日期填错了
+        // 只能删了重发。null = 这次不改，与上面完全一致。
+        if (request.getProjectType() != null) {
+            ticket.setProjectType(request.getProjectType());
+        }
+        if (request.getTechStack() != null) {
+            ticket.setTechStack(request.getTechStack());
+        }
+        if (request.getBudget() != null) {
+            ticket.setBudget(request.getBudget());
+        }
+        if (request.getDeadline() != null) {
+            ticket.setDeadline(request.getDeadline());
+        }
+        if (request.getDetailedRequirements() != null) {
+            ticket.setDetailedRequirements(request.getDetailedRequirements());
+        }
+
         ticket = ticketRepository.save(ticket);
         log.info("Ticket updated: id={}", id);
         return toDTO(ticket);

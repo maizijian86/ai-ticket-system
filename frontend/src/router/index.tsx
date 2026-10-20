@@ -3,6 +3,11 @@ import AppLayout from '@/layouts/AppLayout'
 import Home from '@/pages/Home'
 import TicketDetail from '@/pages/ticket/TicketDetail'
 import TicketList from '@/pages/ticket/TicketList'
+import TicketCreate from '@/pages/ticket/TicketCreate'
+import TicketEdit from '@/pages/ticket/TicketEdit'
+import TicketChat from '@/pages/ticket/TicketChat'
+import Membership from '@/pages/membership/Membership'
+import MembershipResult from '@/pages/membership/MembershipResult'
 import Placeholder from '@/components/feedback/Placeholder'
 import { requireAdminLoader, requireAuthLoader } from './guards'
 
@@ -42,9 +47,9 @@ export const router = createBrowserRouter([
       { path: 'tickets/:id', element: <TicketDetail /> },
 
       // 下面这些默认需要登录（守卫语义是"不写 loader 就要登录"）。
-      { path: 'tickets/new', loader: requireAuthLoader, element: page('发布需求') },
-      { path: 'tickets/:id/edit', loader: requireAuthLoader, element: page('编辑需求') },
-      { path: 'tickets/:id/chat', loader: requireAuthLoader, element: page('工单沟通') },
+      { path: 'tickets/new', loader: requireAuthLoader, element: <TicketCreate /> },
+      { path: 'tickets/:id/edit', loader: requireAuthLoader, element: <TicketEdit /> },
+      { path: 'tickets/:id/chat', loader: requireAuthLoader, element: <TicketChat /> },
 
       // 此处原有 /my-tickets、/pending、/accepted、/completed 四条路由和对应页面。
       // 那四页说的是和个人流水一样的事，只是换了个位置，已并进需求大厅顶上的卡片，
@@ -65,10 +70,10 @@ export const router = createBrowserRouter([
 
       // 会员与个人主页。三条都要登录：会员页要显示自己的余额与到期日、结果页要查
       // 自己那笔单（后端按网关注入的身份校验归属，未登录会 401），个人主页更不用说。
-      { path: 'membership', loader: requireAuthLoader, element: page('开通会员') },
+      { path: 'membership', loader: requireAuthLoader, element: <Membership /> },
       // 支付宝的 return_url 也指向这里（application.yml 的 alipay.return-url），
       // 单号由支付宝以 out_trade_no 追加在 query 上。
-      { path: 'membership/result', loader: requireAuthLoader, element: page('支付结果') },
+      { path: 'membership/result', loader: requireAuthLoader, element: <MembershipResult /> },
       { path: 'profile', loader: requireAuthLoader, element: page('个人主页') },
 
       { path: 'admin/users', loader: requireAdminLoader, element: page('用户管理') },
