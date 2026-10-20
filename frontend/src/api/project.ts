@@ -1,7 +1,5 @@
-import axios from 'axios'
-import type { AxiosRequestConfig } from 'axios'
+import request from '@/api/client'
 import type {
-  ApiEnvelope,
   CreateDiscussionRequest,
   CreateMilestoneRequest,
   CreateModuleRequest,
@@ -24,113 +22,145 @@ import type {
 } from '@/types'
 
 /**
- * 注意：这个实例的响应拦截器返回的是 response.data，也就是后端统一信封
- * { code, message, data } —— 不是 data 本身。所以调用方要写 res.data，
- * 写成 res.id / res.name 会拿到 undefined。
+ * 项目管理接口。
  *
- * axios 的类型系统表达不了「拦截器把 AxiosResponse 换成了别的东西」，默认仍认为
- * 返回 AxiosResponse，于是 res.data 变成 any、res.message 变成「不存在」——两个方向
- * 都错。下面用 envelope.* 把每个方法的返回类型收窄成真正的信封，让类型和运行时一致。
+ * ── 2026-10 重写（Phase 5b）──
+ * 这个文件此前**自己 `axios.create()` 了一套拦截器**，与全站共用的 `api/client`
+ * 是两套语义，三个后果都很隐蔽：
+ *
+ *   1. 没有 40102 的刷新单飞逻辑 —— token 一过期，项目页的请求直接失败，
+ *      而同一时刻别的页面还在正常刷新；
+ *   2. 不注入 X-User-Id；
+ *   3. 拦截器返回的是**原始信封** `{code, message, data}`，且 `code !== 200`
+ *      不会被当成错误。于是每个调用点都得自己写 `res.data` 并手工判 code ——
+ *      漏判一次，一次失败的业务调用就变成了"成功"。
+ *
+ * 现在统一走 `request`：它已经做完了上面三件事，业务码非 200 会 reject，
+ * 调用方拿到的是解包后的 `data`。顺带把 `ApiEnvelope` 的手工收窄也去掉了
+ * （那是为了绕开自建实例的类型错位，现在没有错位了）。
+ *
+ * 注意 `getMyProjects` / `getByStatus` 返回的是 **Spring Data 的 Page**，
+ * 形状是 `{content, totalElements, ...}`，不是本项目自带的 `PageResult`
+ * （那个是 `{data, total, page, pageSize}`）。这个差别来自后端两个控制器写法不同，
+ * 不是前端能统一的 —— 所以类型上保留 `SpringPage`。
  */
-
-const api = axios.create({
-  baseURL: '/api/v1/projects',
-  timeout: 30000
-})
-
-// 请求拦截器
-api.interceptors.request.use(
-  (config) => {
-    const token = localStorage.getItem('token')
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`
-    }
-    return config
-  },
-  (error) => Promise.reject(error)
-)
-
-// 响应拦截器
-api.interceptors.response.use(
-  (response) => response.data,
-  (error) => Promise.reject(error)
-)
-
-/** 把 axios 的返回类型改写成拦截器实际交出来的信封。运行时没有任何额外包装。 */
-const envelope = {
-  get: <T>(url: string, config?: AxiosRequestConfig) =>
-    api.get(url, config) as unknown as Promise<ApiEnvelope<T>>,
-  post: <T>(url: string, data?: unknown, config?: AxiosRequestConfig) =>
-    api.post(url, data, config) as unknown as Promise<ApiEnvelope<T>>,
-  put: <T>(url: string, data?: unknown, config?: AxiosRequestConfig) =>
-    api.put(url, data, config) as unknown as Promise<ApiEnvelope<T>>,
-  delete: <T>(url: string, config?: AxiosRequestConfig) =>
-    api.delete(url, config) as unknown as Promise<ApiEnvelope<T>>
-}
-
 export const projectApi = {
-  // 项目CRUD
-  create: (data: CreateProjectRequest) => envelope.post<ProjectDTO>('', data),
-  getById: (id: number) => envelope.get<ProjectDTO>(`/${id}`),
-  // 后端返回 Spring Data 的 Page<Project>，序列化后是 { content, totalElements, ... }，
-  // 不是本项目自带的 PageResult。
-  getMyProjects: (userId: number, page = 0, size = 10) =>
-    envelope.get<SpringPage<ProjectDTO>>('/my', { params: { userId, page, size } }),
-  getByStatus: (status: ProjectStatus, page = 0, size = 10) =>
-    envelope.get<SpringPage<ProjectDTO>>(`/status/${status}`, { params: { page, size } }),
-  update: (id: number, data: UpdateProjectRequest) => envelope.put<ProjectDTO>(`/${id}`, data),
-  delete: (id: number) => envelope.delete<null>(`/${id}`),
+  // 项目 CRUD
+  create(data: CreateProjectRequest) {
+    return request.post<any, ProjectDTO>('/v1/projects', data)
+  },
+  getById(id: number) {
+    return request.get<any, ProjectDTO>(`/v1/projects/${id}`)
+  },
+  getMyProjects(userId: number, page = 0, size = 10) {
+    return request.get<any, SpringPage<ProjectDTO>>('/v1/projects/my', {
+      params: { userId, page, size }
+    })
+  },
+  getByStatus(status: ProjectStatus, page = 0, size = 10) {
+    return request.get<any, SpringPage<ProjectDTO>>(`/v1/projects/status/${status}`, {
+      params: { page, size }
+    })
+  },
+  update(id: number, data: UpdateProjectRequest) {
+    return request.put<any, ProjectDTO>(`/v1/projects/${id}`, data)
+  },
+  delete(id: number) {
+    return request.delete<any, null>(`/v1/projects/${id}`)
+  },
 
-  // 项目状态
-  start: (id: number) => envelope.put<ProjectDTO>(`/${id}/start`),
-  complete: (id: number) => envelope.put<ProjectDTO>(`/${id}/complete`),
-  archive: (id: number) => envelope.put<ProjectDTO>(`/${id}/archive`),
+  // 项目状态流转
+  start(id: number) {
+    return request.put<any, ProjectDTO>(`/v1/projects/${id}/start`)
+  },
+  complete(id: number) {
+    return request.put<any, ProjectDTO>(`/v1/projects/${id}/complete`)
+  },
+  archive(id: number) {
+    return request.put<any, ProjectDTO>(`/v1/projects/${id}/archive`)
+  },
 
-  // AI分析
-  updateAiAnalysis: (id: number, data: UpdateAiAnalysisRequest) =>
-    envelope.put<ProjectDTO>(`/${id}/ai-analysis`, data),
+  // AI 分析结果回填（分析本身在别处触发）
+  updateAiAnalysis(id: number, data: UpdateAiAnalysisRequest) {
+    return request.put<any, ProjectDTO>(`/v1/projects/${id}/ai-analysis`, data)
+  },
 
-  // 模块管理
-  createModule: (projectId: number, data: CreateModuleRequest) =>
-    envelope.post<ProjectModuleDTO>(`/${projectId}/modules`, data),
-  getModules: (projectId: number) => envelope.get<ProjectModuleDTO[]>(`/${projectId}/modules`),
-  updateModule: (id: number, data: UpdateModuleRequest) =>
-    envelope.put<ProjectModuleDTO>(`/modules/${id}`, data),
-  deleteModule: (id: number) => envelope.delete<null>(`/modules/${id}`),
+  // 模块
+  createModule(projectId: number, data: CreateModuleRequest) {
+    return request.post<any, ProjectModuleDTO>(`/v1/projects/${projectId}/modules`, data)
+  },
+  getModules(projectId: number) {
+    return request.get<any, ProjectModuleDTO[]>(`/v1/projects/${projectId}/modules`)
+  },
+  updateModule(id: number, data: UpdateModuleRequest) {
+    return request.put<any, ProjectModuleDTO>(`/v1/projects/modules/${id}`, data)
+  },
+  deleteModule(id: number) {
+    return request.delete<any, null>(`/v1/projects/modules/${id}`)
+  },
 
-  // 任务管理
-  createTask: (projectId: number, data: CreateTaskRequest) =>
-    envelope.post<ProjectTaskDTO>(`/${projectId}/tasks`, data),
-  getTasks: (projectId: number) => envelope.get<ProjectTaskDTO[]>(`/${projectId}/tasks`),
-  getTasksByStatus: (projectId: number, status: TaskStatus) =>
-    envelope.get<ProjectTaskDTO[]>(`/${projectId}/tasks/status/${status}`),
-  getModuleTasks: (moduleId: number) => envelope.get<ProjectTaskDTO[]>(`/modules/${moduleId}/tasks`),
-  getSubTasks: (taskId: number) => envelope.get<ProjectTaskDTO[]>(`/tasks/${taskId}/subtasks`),
-  updateTask: (id: number, data: UpdateTaskRequest) =>
-    envelope.put<ProjectTaskDTO>(`/tasks/${id}`, data),
-  updateTaskStatus: (id: number, status: TaskStatus) =>
-    envelope.put<ProjectTaskDTO>(`/tasks/${id}/status`, { status }),
-  deleteTask: (id: number) => envelope.delete<null>(`/tasks/${id}`),
+  // 任务
+  createTask(projectId: number, data: CreateTaskRequest) {
+    return request.post<any, ProjectTaskDTO>(`/v1/projects/${projectId}/tasks`, data)
+  },
+  getTasks(projectId: number) {
+    return request.get<any, ProjectTaskDTO[]>(`/v1/projects/${projectId}/tasks`)
+  },
+  getTasksByStatus(projectId: number, status: TaskStatus) {
+    return request.get<any, ProjectTaskDTO[]>(`/v1/projects/${projectId}/tasks/status/${status}`)
+  },
+  getModuleTasks(moduleId: number) {
+    return request.get<any, ProjectTaskDTO[]>(`/v1/projects/modules/${moduleId}/tasks`)
+  },
+  getSubTasks(taskId: number) {
+    return request.get<any, ProjectTaskDTO[]>(`/v1/projects/tasks/${taskId}/subtasks`)
+  },
+  updateTask(id: number, data: UpdateTaskRequest) {
+    return request.put<any, ProjectTaskDTO>(`/v1/projects/tasks/${id}`, data)
+  },
+  updateTaskStatus(id: number, status: TaskStatus) {
+    return request.put<any, ProjectTaskDTO>(`/v1/projects/tasks/${id}/status`, { status })
+  },
+  deleteTask(id: number) {
+    return request.delete<any, null>(`/v1/projects/tasks/${id}`)
+  },
 
   // 里程碑
-  createMilestone: (projectId: number, data: CreateMilestoneRequest) =>
-    envelope.post<MilestoneDTO>(`/${projectId}/milestones`, data),
-  getMilestones: (projectId: number) => envelope.get<MilestoneDTO[]>(`/${projectId}/milestones`),
-  updateMilestone: (id: number, data: UpdateMilestoneRequest) =>
-    envelope.put<MilestoneDTO>(`/milestones/${id}`, data),
-  // 后端把状态置为 ACHIEVED，不是 COMPLETED —— 见 MilestoneStatus 的注释。
-  completeMilestone: (id: number) => envelope.put<MilestoneDTO>(`/milestones/${id}/complete`),
-  deleteMilestone: (id: number) => envelope.delete<null>(`/milestones/${id}`),
+  createMilestone(projectId: number, data: CreateMilestoneRequest) {
+    return request.post<any, MilestoneDTO>(`/v1/projects/${projectId}/milestones`, data)
+  },
+  getMilestones(projectId: number) {
+    return request.get<any, MilestoneDTO[]>(`/v1/projects/${projectId}/milestones`)
+  },
+  updateMilestone(id: number, data: UpdateMilestoneRequest) {
+    return request.put<any, MilestoneDTO>(`/v1/projects/milestones/${id}`, data)
+  },
+  /** 后端把状态置为 ACHIEVED，不是 COMPLETED —— 见 MilestoneStatus 的注释 */
+  completeMilestone(id: number) {
+    return request.put<any, MilestoneDTO>(`/v1/projects/milestones/${id}/complete`)
+  },
+  deleteMilestone(id: number) {
+    return request.delete<any, null>(`/v1/projects/milestones/${id}`)
+  },
 
   // 讨论
-  addDiscussion: (projectId: number, data: CreateDiscussionRequest) =>
-    envelope.post<ProjectDiscussionDTO>(`/${projectId}/discussions`, data),
-  getProjectDiscussions: (projectId: number) =>
-    envelope.get<ProjectDiscussionDTO[]>(`/${projectId}/discussions`),
-  getTargetDiscussions: (targetType: DiscussionTargetType, targetId: number) =>
-    envelope.get<ProjectDiscussionDTO[]>(`/discussions/${targetType}/${targetId}`),
+  addDiscussion(projectId: number, data: CreateDiscussionRequest) {
+    return request.post<any, ProjectDiscussionDTO>(`/v1/projects/${projectId}/discussions`, data)
+  },
+  getProjectDiscussions(projectId: number) {
+    return request.get<any, ProjectDiscussionDTO[]>(`/v1/projects/${projectId}/discussions`)
+  },
+  getTargetDiscussions(targetType: DiscussionTargetType, targetId: number) {
+    return request.get<any, ProjectDiscussionDTO[]>(
+      `/v1/projects/discussions/${targetType}/${targetId}`
+    )
+  },
 
   // 统计
-  getActiveProjects: () => envelope.get<ProjectDTO[]>('/stats/active'),
-  countByStatus: (status: ProjectStatus) => envelope.get<number>(`/stats/count/${status}`)
+  getActiveProjects() {
+    return request.get<any, ProjectDTO[]>('/v1/projects/stats/active')
+  },
+  countByStatus(status: ProjectStatus) {
+    return request.get<any, number>(`/v1/projects/stats/count/${status}`)
+  }
 }

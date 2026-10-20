@@ -1,26 +1,45 @@
+import { useNavigate } from 'react-router-dom'
+import { ArrowLeft, Clock } from '@/components/icons'
+import { CARD_BASE } from '@/components/layout/PageShell'
+
 /**
- * 施工中占位页。
+ * 「还没做」的页面。
  *
- * 迁移策略是「先立 React 壳、未迁移的路由渲染占位」，而不是在 Vue 壳里继续嵌
- * React 页面 —— 后者要给 20 个页面各写一层临时的路由桥，最后翻壳时还得返工第二遍。
+ * ⚠️ 文案在 2026-10 整体改写过一次，别再改回去：这里原来写的是
+ * "这个页面还在从 Vue 迁到 React 的路上"。那句话当时是真的，但迁移已经收尾
+ *（59 个 .vue 全删了，见 Phase 2），现在只有**功能本身没做**这一种情况，
+ * 再挂那句就是误导 —— 用户会以为站点半成品，而不是"这个模块还没开放"。
  *
- * 所以这个组件是**临时**的，P5 结束时会连同最后一个占位路由一起消失。刻意把它写得
- * 很简单：任何聪明之处都是在给删除增加阻力。
- *
- * 显示当前路径是必要的 —— 测试导航时（尤其是守卫把用户弹到哪去了）必须一眼看出
- * 此刻落在哪个路由上，否则「点了个受保护的链接」和「什么都没发生」长得一样。
+ * 剩下的用途只有一处：/projects（项目管理）。后端 35 个接口是完整可用的，
+ * 缺的是前端三个页面，属于单独排期的工作量，不在本轮范围内。
  */
 export default function Placeholder({ title }: { title: string }) {
+  const navigate = useNavigate()
+
   return (
-    <div className="mx-auto w-full max-w-3xl px-6 py-24">
-      <p className="text-xs font-medium tracking-[0.2em] text-muted-foreground uppercase">
-        Under construction
-      </p>
-      <h1 className="mt-3 text-3xl font-semibold tracking-tight">{title}</h1>
-      <p className="mt-4 max-w-prose text-sm leading-6 text-muted-foreground">
-        这个页面还在从 Vue 迁到 React 的路上。导航、登录态与路由守卫已经是真的了 ——
-        可以从这里点走、退出、再被拦回来试试。
-      </p>
+    <div className="mx-auto flex min-h-[calc(100vh-56px)] w-full max-w-[720px] flex-col items-center justify-center px-6 py-16">
+      <div className={`${CARD_BASE} w-full px-8 py-14 text-center`}>
+        <div className="mx-auto flex size-14 items-center justify-center rounded-full border border-border bg-muted text-muted-foreground">
+          <Clock size={22} />
+        </div>
+
+        <p className="mt-5 font-mono text-[11px] font-medium tracking-[0.24em] text-muted-foreground uppercase">
+          Coming soon
+        </p>
+        <h1 className="mt-2 text-xl font-semibold tracking-tight sm:text-2xl">{title}</h1>
+        <p className="mx-auto mt-3 max-w-sm text-sm leading-6 text-muted-foreground">
+          这个模块还没开放。需求大厅、工单详情、AI 辅助与会员购买都已经可以正常使用。
+        </p>
+
+        <button
+          type="button"
+          onClick={() => navigate('/tickets')}
+          className="mt-7 inline-flex h-10 cursor-pointer items-center justify-center gap-1.5 rounded-full border border-border bg-card px-5 text-sm font-medium transition-colors hover:bg-accent"
+        >
+          <ArrowLeft size={15} />
+          去需求大厅
+        </button>
+      </div>
     </div>
   )
 }

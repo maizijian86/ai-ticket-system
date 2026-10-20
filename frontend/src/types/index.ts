@@ -92,6 +92,19 @@ export interface UserSkillDTO {
   recommendationReason?: string
 }
 
+/**
+ * 改接单者技能。与后端 `UpdateSkillRequest` 对应。
+ *
+ * 三个字段都可选：null / 缺省 = 这次不改这一项。`expertiseLevel` 是
+ * 技能名 → 1~5 的熟练度，只有 skillTags 里的键才有意义。
+ */
+export interface UpdateSkillRequest {
+  userId?: number
+  skillTags?: string[]
+  expertiseLevel?: Record<string, number>
+  maxLoad?: number
+}
+
 export interface PageResult<T> {
   data: T[]
   total: number
@@ -530,9 +543,13 @@ export type UpdateAiAnalysisRequest = Pick<ProjectDTO, 'aiPrd' | 'aiTechStack' |
 
 // ---------------------------------------------------------------- 响应信封
 /**
- * 后端统一响应体。注意 src/api/project.ts 的响应拦截器返回的是**这个信封本身**，
- * 不是 data —— 所以那边的方法签名都以 ApiEnvelope<T> 为返回类型，调用方写 res.data。
- * （src/utils/axios.ts 是另一个实例，它的拦截器会剥掉信封，语义不同，别混用。）
+ * 后端统一响应体 `{code, message, data}`。
+ *
+ * ⚠️ 2026-10 起前端**所有**接口都走 `src/api/client.ts`，它的响应拦截器会把信封
+ * 剥掉、只交出 `data`，所以业务代码里已经拿不到这个形状了。
+ * 这个类型保留是给 `api/client.ts` 的拦截器实现做标注用的 —— 别在页面里写
+ * `res.data`，那层解包已经做过了（此前 `api/project.ts` 自建的那套实例就是
+ * 不剥信封的，两套语义混用踩过坑，见那个文件的注释）。
  */
 export interface ApiEnvelope<T> {
   code: number

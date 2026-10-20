@@ -39,14 +39,29 @@ public class UserController {
         return Result.success(userService.listUsers(page, pageSize, role));
     }
 
+    /**
+     * 修改用户资料。
+     *
+     * <p>身份一律取网关注入的 X-User-Id / X-User-Role，**不接受客户端自称的角色**：
+     * 那两个头会被网关用 JWT 里的值覆盖，前端传什么都不作数。
+     * 归属与提权判断在 {@code UserService.updateUser}。
+     */
     @PutMapping("/{id}")
-    public Result<UserDTO> updateUser(@PathVariable Long id, @RequestBody UserDTO dto) {
-        return Result.success(userService.updateUser(id, dto));
+    public Result<UserDTO> updateUser(
+            @PathVariable Long id,
+            @RequestHeader(value = "X-User-Id", required = false) Long operatorId,
+            @RequestHeader(value = "X-User-Role", required = false) Role operatorRole,
+            @RequestBody UserDTO dto) {
+        return Result.success(userService.updateUser(id, dto, operatorId, operatorRole));
     }
 
+    /** 删除用户。仅管理员，见 {@code UserService.deleteUser}。 */
     @DeleteMapping("/{id}")
-    public Result<Void> deleteUser(@PathVariable Long id) {
-        userService.deleteUser(id);
+    public Result<Void> deleteUser(
+            @PathVariable Long id,
+            @RequestHeader(value = "X-User-Id", required = false) Long operatorId,
+            @RequestHeader(value = "X-User-Role", required = false) Role operatorRole) {
+        userService.deleteUser(id, operatorId, operatorRole);
         return Result.success();
     }
 

@@ -53,17 +53,22 @@ const IRIDESCENCE_PROPS = {
 }
 
 /*
-  导航项。原来是硬编码在侧边栏里的 <el-menu-item>，这里提成数组 —— 顶栏和
-  移动端浮层两处渲染同一份数据，改动只需要动一处。
+  导航项。顶栏和移动端浮层两处渲染同一份数据，改动只需要动一处。
 
   项目流水（我的需求/待处理/我接的单/已完成）不在这里：它们说的是同一件事，
-  入口统一由大厅顶上的身份卡片承载（旧的 TicketList.vue）。
-  URL 在路由表里重定向回 /tickets。
+  入口统一由大厅顶上的身份卡片承载。那些 URL 在路由表里重定向回 /tickets。
+
+  **「知识库」已移除**（2026-10）：后端 knowledge_base 表没有任何代码读写 ——
+  它唯一的消费者是 ai-service 里那套 MiniMax 时代的 AiService，而那个模块已经
+  整个删掉了（见 Phase 3）。留着入口只会把人引到一个空模块。
+  等知识库功能真立项时，先补后端接口，再把这一项加回来。
+
+  「项目管理」保留：后端 35 个接口是完整可用的，缺的只是前端三个页面，
+  属于单独排期的工作量；点进去是"即将上线"，不是死链。
 */
 const NAV_ITEMS = [
   { path: '/tickets', label: '需求大厅' },
-  { path: '/projects', label: '项目管理' },
-  { path: '/knowledge', label: '知识库' }
+  { path: '/projects', label: '项目管理' }
 ]
 
 export default function AppLayout() {

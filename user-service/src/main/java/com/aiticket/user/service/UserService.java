@@ -251,19 +251,50 @@ public class UserService {
                 .collect(Collectors.toList());
     }
 
+    /**
+     * 修改用户资料。
+     *
+     * <p>⚠️ 2026-10 补的权限边界。此前这个方法**没有任何归属校验** —— 网关只校验
+     * "是不是登录了"，于是任何登录用户都能 {@code PUT /users/{别人的id}} 把
+     * {@code role} 改成 ADMIN（dto 的 role 与 status 都是直接落库的），
+     * 等于一个对外可用的提权入口。{@code DELETE /users/{id}} 同样是裸的。
+     * 头像那两条接口早就想清楚了这件事（路径里刻意不带 id、身份取 X-User-Id），
+     * 这里漏了同一套判断。
+     *
+     * <p>现在的规则：
+     * <ul>
+     *   <li>未登录（拿不到 X-User-Id）→ 401；</li>
+     *   <li>非管理员只能改自己，改别人 → 403；</li>
+     *   <li><b>非管理员即便改自己，dto 里的 role / status 也一律忽略</b> ——
+     *       只拦"改别人"是不够的，自我提权才是最短的那条路；</li>
+     *   <li>管理员可以改任何人，也包括改 role / status（用户管理页要用）。</li>
+     * </ul>
+     */
     @Transactional
-    public UserDTO updateUser(Long id, UserDTO dto) {
+    public UserDTO updateUser(Long id, UserDTO dto, Long operatorId, Role operatorRole) {
+        if (operatorId == null) {
+            throw new BusinessException(401, "请先登录");
+        }
+        boolean admin = isAdmin(operatorRole);
+        if (!admin && !operatorId.equals(id)) {
+            throw new BusinessException(403, "只能修改自己的资料");
+        }
+
         User user = userRepository.findById(id)
                 .orElseThrow(() -> new BusinessException(404, "User not found"));
 
         if (dto.getNickname() != null) {
             user.setNickname(dto.getNickname());
         }
-        if (dto.getRole() != null) {
-            user.setRole(dto.getRole());
-        }
-        if (dto.getStatus() != null) {
-            user.setStatus(dto.getStatus());
+        // role / status 只允许管理员改：非管理员即便传了也静默忽略，
+        // 而不是报 403 —— 前端把整个 UserDTO 回传是很自然的写法，不该因此失败。
+        if (admin) {
+            if (dto.getRole() != null) {
+                user.setRole(dto.getRole());
+            }
+            if (dto.getStatus() != null) {
+                user.setStatus(dto.getStatus());
+            }
         }
         if (dto.getGithubUsername() != null) {
             user.setGithubUsername(dto.getGithubUsername());
@@ -273,18 +304,39 @@ public class UserService {
         }
 
         user = userRepository.save(user);
-        log.info("User updated: {}", user.getUsername());
+        log.info("User updated: {} by operator {} (admin={})", user.getUsername(), operatorId, admin);
         return toDTO(user);
     }
 
+    /**
+     * 删除用户（软删）。
+     *
+     * <p>同上的权限边界：**仅管理员**。此前无任何校验，任何登录用户都能删掉任何人。
+     * 另外不允许管理员删自己 —— 免得把最后一个管理员删了就再也进不了后台。
+     */
     @Transactional
-    public void deleteUser(Long id) {
+    public void deleteUser(Long id, Long operatorId, Role operatorRole) {
+        if (operatorId == null) {
+            throw new BusinessException(401, "请先登录");
+        }
+        if (!isAdmin(operatorRole)) {
+            throw new BusinessException(403, "只有管理员才能删除用户");
+        }
+        if (operatorId.equals(id)) {
+            throw new BusinessException(400, "不能删除自己的账号");
+        }
+
         User user = userRepository.findById(id)
                 .orElseThrow(() -> new BusinessException(404, "User not found"));
 
         user.softDelete();
         userRepository.save(user);
-        log.info("User deleted: {}", user.getUsername());
+        log.info("User deleted: {} by admin {}", user.getUsername(), operatorId);
+    }
+
+    /** 操作者角色是不是 ADMIN。role 来自网关注入的 X-User-Role，可能为 null。 */
+    private static boolean isAdmin(Role operatorRole) {
+        return operatorRole == Role.ADMIN;
     }
 
     // ==================== 头像 ====================

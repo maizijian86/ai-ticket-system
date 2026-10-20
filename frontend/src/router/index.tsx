@@ -8,6 +8,10 @@ import TicketEdit from '@/pages/ticket/TicketEdit'
 import TicketChat from '@/pages/ticket/TicketChat'
 import Membership from '@/pages/membership/Membership'
 import MembershipResult from '@/pages/membership/MembershipResult'
+import Profile from '@/pages/profile/Profile'
+import AdminUsers from '@/pages/admin/AdminUsers'
+import AdminStats from '@/pages/admin/AdminStats'
+import NotFound from '@/pages/NotFound'
 import Placeholder from '@/components/feedback/Placeholder'
 import { requireAdminLoader, requireAuthLoader } from './guards'
 
@@ -59,9 +63,13 @@ export const router = createBrowserRouter([
       { path: 'accepted', loader: toTickets },
       { path: 'completed', loader: toTickets },
 
-      { path: 'knowledge', loader: requireAuthLoader, element: page('知识库') },
+      // 「知识库」入口与页面都已撤掉（2026-10）：后端 knowledge_base 表没有任何代码
+      // 读写 —— 它唯一的消费者是已删除的 ai-service 里那套旧 AiService。
+      // URL 保留为重定向，与上面那四条同样的理由：书签/聊天记录里可能还有它。
+      { path: 'knowledge', loader: toTickets },
 
-      // 项目管理。此前整块 views/project/ 都没有注册路由，页面无入口、点进去是空白。
+      // 项目管理。后端 35 个接口可用，前端三页属于单独排期的工作量，
+      // 本轮先用「即将上线」承接（见 components/feedback/Placeholder.tsx）。
       { path: 'projects', loader: requireAuthLoader, element: page('项目管理') },
       // 必须排在 projects/:id 之前 —— 静态段优先，但把这条写在前面能让
       // 「create 被当成 id」这件事一眼可见。
@@ -74,15 +82,15 @@ export const router = createBrowserRouter([
       // 支付宝的 return_url 也指向这里（application.yml 的 alipay.return-url），
       // 单号由支付宝以 out_trade_no 追加在 query 上。
       { path: 'membership/result', loader: requireAuthLoader, element: <MembershipResult /> },
-      { path: 'profile', loader: requireAuthLoader, element: page('个人主页') },
+      { path: 'profile', loader: requireAuthLoader, element: <Profile /> },
 
-      { path: 'admin/users', loader: requireAdminLoader, element: page('用户管理') },
-      { path: 'admin/stats', loader: requireAdminLoader, element: page('统计分析') },
+      { path: 'admin/users', loader: requireAdminLoader, element: <AdminUsers /> },
+      { path: 'admin/stats', loader: requireAdminLoader, element: <AdminStats /> },
 
       // 兜底：必须放在所有子路由之后。没有它时，任何未匹配的路径都会渲染成
       // 布局 + 空的 Outlet，表现为整页空白，既不报错也没有任何提示。
       // 放在子路由里是为了保留顶栏，用户能直接点走而不是卡在死页。
-      { path: '*', element: page('页面不存在') }
+      { path: '*', element: <NotFound /> }
     ]
   }
 ])

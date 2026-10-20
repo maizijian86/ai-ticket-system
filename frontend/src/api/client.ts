@@ -2,6 +2,7 @@ import axios from 'axios'
 import { toast } from 'sonner'
 import { useAuthStore } from '@/stores/authStore'
 import { useUiStore } from '@/stores/uiStore'
+import type { ApiEnvelope } from '@/types'
 
 /**
  * 全站 HTTP 客户端。由 `utils/axios.ts`（Vue 版）改写而来 —— **只换了 3 个耦合点**：
@@ -94,7 +95,9 @@ request.interceptors.response.use(
       return response.data
     }
 
-    const res = response.data
+    // 业务码判定。标注成 ApiEnvelope 是为了让下面的 res.code / res.data 有类型，
+    // 而不是让它成为调用方要处理的形状 —— **这一层就把信封剥掉了**。
+    const res = response.data as ApiEnvelope<unknown>
     if (res.code !== 200 && res.code !== 0) {
       toast.error(res.message || '请求失败')
       return Promise.reject(new Error(res.message || '请求失败'))

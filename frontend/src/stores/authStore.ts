@@ -25,6 +25,17 @@ interface AuthState {
   login: (username: string, password: string) => Promise<LoginResponse>
   register: (data: RegisterRequest) => Promise<UserDTO>
   setAuthData: (data: LoginResponse) => void
+  /**
+   * 只替换 userInfo（昵称、头像这类"资料"改动）。
+   *
+   * 为什么不能复用 `setAuthData`：那个入参是**登录响应**，要求带 accessToken /
+   * refreshToken，改个头像就得把 token 从 localStorage 读出来再塞回去 ——
+   * 又假又容易写错。这里单独开一条只动资料的路。
+   *
+   * 必须同时写 localStorage：boot 时 userInfo 是从那里恢复的，只改内存态的话
+   * 刷新一次就退回旧昵称（顶栏头像也是读 store，会跟着一起漂）。
+   */
+  setUserInfo: (userInfo: UserDTO) => void
   setTokens: (accessToken: string, newRefreshToken?: string) => void
   logout: () => void
   logoutRemote: () => Promise<void>
@@ -79,6 +90,12 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
     localStorage.setItem('userInfo', JSON.stringify(userInfo))
 
     get().setTokens(data.accessToken, data.refreshToken)
+  },
+
+  setUserInfo(userInfo) {
+    set({ userInfo })
+    localStorage.setItem('userInfo', JSON.stringify(userInfo))
+    localStorage.setItem('userName', userInfo.nickname || userInfo.username)
   },
 
   /**
