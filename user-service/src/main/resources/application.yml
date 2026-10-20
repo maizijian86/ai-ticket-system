@@ -19,9 +19,13 @@ spring:
       max-request-size: 4MB
 
   datasource:
-    url: jdbc:mysql://localhost:3306/aiticket?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
-    username: root
-    password: 1234
+    # ⚠️ 凭据曾与另外两个服务不一致（这里是 root/1234，ticket-service 是 aiticket/aiticket），
+    # 同一个 aiticket 库、两套账号 —— 照 README 起服务时总有一个连不上。
+    # 现在统一成 aiticket/aiticket，并全部支持环境变量覆盖：
+    # 换机器/换环境不改代码，只改 DB_URL / DB_USERNAME / DB_PASSWORD。
+    url: ${DB_URL:jdbc:mysql://localhost:3306/aiticket?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true}
+    username: ${DB_USERNAME:aiticket}
+    password: ${DB_PASSWORD:aiticket}
     driver-class-name: com.mysql.cj.jdbc.Driver
 
   jpa:
@@ -56,7 +60,9 @@ aliyun:
     access-key-secret: ${OSS_ACCESS_KEY_SECRET:}
 
 jwt:
-  secret: aiticket-jwt-secret-key-change-in-production-min-256-bits
+  # 与 api-gateway 的 jwt.secret **必须是同一个值**：这里签发、网关校验，
+  # 不一致的表现是"登录成功但之后每个接口都 401"。真实部署请设 JWT_SECRET。
+  secret: ${JWT_SECRET:aiticket-jwt-secret-key-change-in-production-min-256-bits}
   access-token-expiration: 1800000  # 30 minutes
   refresh-token-expiration: 604800000  # 7 days
 

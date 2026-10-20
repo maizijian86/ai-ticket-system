@@ -21,10 +21,21 @@ fi
 
 cd frontend || exit 1
 
+# 两道闸：tsc 管类型，eslint 管"引了没用 / 用了没引"这类类型系统看不见的腐烂。
+# eslint 放在 tsc 之后跑：类型错误通常更致命，先看到它。
+# 两者都只跑 src 与 scripts，不碰 node_modules / dist。
 echo "[pre-commit] 运行 tsc 类型检查 ..."
 npm run --silent type-check || {
   echo ""
   echo "[pre-commit] 类型检查未通过，提交已阻止。"
   echo "             修复后重试；确需绕过用 git commit --no-verify（请先说明理由）。"
+  exit 1
+}
+
+echo "[pre-commit] 运行 eslint ..."
+npm run --silent lint || {
+  echo ""
+  echo "[pre-commit] eslint 未通过，提交已阻止。"
+  echo "             多数问题可 `npm run lint:fix` 自动修。"
   exit 1
 }

@@ -26,5 +26,32 @@ export default defineConfig({
         changeOrigin: true
       }
     }
+  },
+  build: {
+    rollupOptions: {
+      output: {
+        /*
+          把第三方库切成三块。目的不是"消灭 500 kB 警告"，是**缓存粒度**：
+          业务代码几乎每周都变，而这几个 vendor 几个月不动。混在一个 chunk 里，
+          用户每次发版都要重下整包；拆开之后只有变的那块失效。
+
+          页面级的拆分不在这里 —— 那是 router 的 `lazy` 做的（见 router/index.tsx）。
+
+          注意别把 @base-ui/react 拆得太碎：它内部有大量互相引用的小模块，
+          切成多块反而会产生循环依赖警告。
+        */
+        manualChunks: {
+          'vendor-react': ['react', 'react-dom', 'react-router-dom'],
+          'vendor-ui': [
+            '@base-ui/react',
+            'sonner',
+            'lucide-react',
+            'class-variance-authority',
+            'cn'
+          ],
+          'vendor-form': ['react-hook-form', '@hookform/resolvers', 'zod']
+        }
+      }
+    }
   }
 })

@@ -93,7 +93,13 @@ public class JwtAuthenticationFilter implements GlobalFilter, Ordered {
 
         boolean anonymousReadable = isAnonymousReadable(request, path);
         String authHeader = request.getHeaders().getFirst("Authorization");
-        log.debug("Authorization header: {}", authHeader);
+
+        // ⚠️ 这里曾经有两行 debug 日志，把整个 Authorization 头与前 50 个字符的 token
+        // 打进日志（`log.debug("Authorization header: {}", authHeader)` 与
+        // `log.debug("Token: {}...", token.substring(0, 50))`）。因为本文件所在的包被
+        // application.yml 设成了 DEBUG 级别，这两行合起来的实际效果是：
+        // **每个请求的 Bearer token 都被写进日志文件** —— 拿到日志就等于拿到所有人的会话。
+        // 已删除。要排查鉴权问题时只看路径与结果码就够，token 本体永远不该落盘。
 
         if (authHeader == null || !authHeader.startsWith("Bearer ")) {
             if (anonymousReadable) {
@@ -111,7 +117,6 @@ public class JwtAuthenticationFilter implements GlobalFilter, Ordered {
         // 而且前端永远等不到 40102、刷新流程也就不会被触发。
 
         String token = authHeader.substring(7);
-        log.debug("Token: {}...", token.length() > 50 ? token.substring(0, 50) : token);
 
         Claims claims;
         try {

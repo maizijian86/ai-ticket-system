@@ -61,23 +61,14 @@ request.interceptors.request.use(
       config.headers['Authorization'] = `Bearer ${token}`
     }
 
-    const userId = localStorage.getItem('userId')
-    if (userId) {
-      config.headers['X-User-Id'] = userId
-    }
-
-    // 这里曾经还会带一个 X-User-Name，值是登录时存进 localStorage 的**昵称**。
-    // 昵称通常是中文，而 XMLHttpRequest 只接受 ISO-8859-1 的头值 —— 一旦昵称里
-    // 有中文，setRequestHeader 会直接抛 "String contains non ISO-8859-1 code point"，
-    // 于是**登录之后的每一个请求都发不出去**：列表空表、详情打不开，页面只弹一句
-    // 网络错误。用的是 ASCII 昵称的账号则一切正常，所以这个问题很容易一直不被发现。
-    //
-    // 删掉而不是改成传 username：这个头本来就不该由前端来断言。网关的
-    // JwtAuthenticationFilter 会用 JWT 里的 username 覆盖 X-User-Id / X-User-Name /
-    // X-User-Role，前端传什么都不作数（services 也已只监听回环，不会被绕过）。
-    // 后端记录的 handlerName 一直来自 token，正是这个原因。
-    //
-    // X-User-Id 保留：它是纯数字，不会有编码问题，同样会被网关覆盖。
+    // 这里曾经还会带 X-User-Id（供后端在没有网关时调试）与 X-User-Name。
+    // 两个都删了：
+    //   · X-User-Name 一旦含中文，XMLHttpRequest 会抛
+    //     "String contains non ISO-8859-1 code point"，于是登录之后**每一个**请求都发不出去；
+    //   · X-User-Id 纯属误导 —— 网关的 JwtAuthenticationFilter 会用 JWT 里的值覆盖它，
+    //     前端传什么都会被丢掉。一个"看起来能声明身份、实际不起作用"的头，
+    //     只会让读代码的人以为身份是由前端决定的。
+    // 身份的唯一来源是 Authorization 里的 JWT，其余一律由网关注入。
 
     return config
   },

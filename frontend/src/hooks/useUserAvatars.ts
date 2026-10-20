@@ -74,7 +74,9 @@ export function useUserAvatars(ids: number[]): Record<number, string> {
     return () => {
       alive = false
     }
-  }, [key])
+    // 依赖写 `wanted` 而不是 `key`：两者同生同灭（wanted 由 key 派生），
+    // 但 effect 体里用的是 wanted，写它才能让 lint 看懂依赖关系。
+  }, [wanted])
 
   return avatars
 }

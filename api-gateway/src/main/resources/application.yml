@@ -46,9 +46,16 @@ spring:
       port: 6379
 
 jwt:
-  secret: aiticket-jwt-secret-key-change-in-production-min-256-bits
+  # 密钥一律走环境变量，形态与 OSS / DeepSeek 那几项一致。默认值只为"本地克隆下来
+  # 就能跑"，形同公开 —— 任何真实部署都必须设 JWT_SECRET，且**与 user-service 用同一个值**
+  # （签发与校验分处两个进程，不一致的表现是"登录成功但每个接口都 401"）。
+  # 历史：这里以前写的是明文常量，两个服务各抄一份，等于把密钥提交进了仓库。
+  secret: ${JWT_SECRET:aiticket-jwt-secret-key-change-in-production-min-256-bits}
 
 logging:
   level:
-    org.springframework.cloud.gateway: DEBUG
-    com.aiticket.gateway: DEBUG
+    # 这两个包原先都是 DEBUG。gateway 那条会逐请求打印路由匹配细节，噪音极大；
+    # com.aiticket.gateway 在 DEBUG 下曾把 Authorization 头整条打进日志（见
+    # JwtAuthenticationFilter 里那段说明）。排查时临时调回 DEBUG，别长期开着。
+    org.springframework.cloud.gateway: INFO
+    com.aiticket.gateway: INFO

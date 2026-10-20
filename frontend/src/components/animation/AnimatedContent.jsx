@@ -21,7 +21,7 @@
   2. **`stagger` 只作用在直接子元素上**。一张卡片一个包裹层时它没有意义 —— 那种情况
      用 `delay` 表达错峰（本仓库用 `(index % PAGE_SIZE) * 0.08` 对齐示例里的 stagger）。
 */
-/* eslint-disable react-hooks/exhaustive-deps */
+ 
 import { useEffect, useLayoutEffect, useRef } from 'react';
 import { gsap } from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
