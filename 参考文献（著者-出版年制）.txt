@@ -1,0 +1,22 @@
+参考文献（GB/T 7714-2015 著者-出版年制）
+
+一、中文文献（10 篇，按著者拼音字顺）
+
+巴泽智, 张辉, 谢铮涵, 等, 2025. 大语言模型自动化提示工程技术研究综述[J]. 计算机科学与探索, 19(12): 3131-3152.
+董益宏, 姜雪, 钱家如, 等, 2026. 基于大语言模型智能体的代码生成综述[J]. 软件学报, 37(8): 3089-3115.
+管立本, 李实, 2024. 融合多粒度语义信息和知识图谱的中文医疗问答匹配模型[J]. 计算机工程与应用, 60(14): 152-161.
+黄佳佳, 朱浩然, 姜茂伟, 等, 2025. 面向审计大模型微调的不平衡指令筛选策略[J]. 计算机科学与探索, 19(12): 3353-3367.
+李嘉琦, 杨环, 高辉, 2025. 融合字符与词语特征的混合神经网络情感分析模型[J]. 计算机工程与应用, 61(13): 227-234.
+刘昕, 高会泉, 邵长恒, 等, 2024. 融合知识推理与相似度检索的民众诉求大模型构建与应用[J]. 计算机科学与探索, 18(11): 2940-2953.
+刘雪颖, 云静, 李博, 等, 2025. 基于大型语言模型的检索增强生成综述[J]. 计算机工程与应用, 61(13): 1-25.
+彭凯, 马芳玲, 徐博, 等, 2024. 主动式微服务细粒度弹性缩放算法研究[J]. 计算机工程与应用, 60(8): 274-286.
+申晓宁, 徐继勇, 姚铖滨, 等, 2024. 基于分组学习粒子群算法的众包软件项目调度[J]. 计算机集成制造系统, 30(6): 2056-2068.
+徐凤如, 李博涵, 胥帅, 2025. 基于深度学习与大语言模型的序列推荐研究进展[J]. 计算机科学与探索, 19(2): 344-366.
+
+二、英文文献（5 篇，按著者字母字顺）
+
+ALAM K A, JUMANI A, AAMIR H, et al., 2024. ClassifAI: automating issue reports classification using pre-trained BERT (bidirectional encoder representations from transformers) models[C]//Proceedings of the Third ACM/IEEE International Workshop on NL-based Software Engineering. New York: ACM: 49-52.
+COLAVITO G, LANUBILE F, NOVIELLI N, 2025. Benchmarking large language models for automated labeling: the case of issue report classification[J]. Information and Software Technology, 184: 107758.
+FAN W, DING Y, NING L, et al., 2024. A survey on RAG meeting LLMs: towards retrieval-augmented large language models[C]//Proceedings of the 30th ACM SIGKDD Conference on Knowledge Discovery and Data Mining. New York: ACM: 6491-6501.
+HOU X, ZHAO Y, LIU Y, et al., 2024. Large language models for software engineering: a systematic literature review[J]. ACM Transactions on Software Engineering and Methodology, 33(8): 1-79.
+LIU M, ZHANG X, ZHOU Y, et al., 2025. Textual embedding optimised CCLLM model for work order text classification in smart grid[J]. Electronics Letters, 61(1): e70397.

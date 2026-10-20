@@ -41,9 +41,16 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-data-redis</artifactId>
         </dependency>
+        <!-- 原先这里是 spring-boot-starter-websocket。
+             它其实**一个 WebSocket 用法都没支撑**（全仓库没有 @EnableWebSocket、没有
+             Stomp/SockJS，站内消息走的是 SSE）—— 它存在的真实作用只有一个：
+             顺带把 spring-boot-starter-web 传进来，而本模块的 GlobalExceptionHandler
+             (@RestControllerAdvice) 与 OssStorage 的 MultipartFile 参数都需要 spring-web。
+             把「搭便车」换成显式依赖：直接要 web，不要 websocket。
+             注：api-gateway 不依赖本模块，所以它那条 WebFlux 路由不受影响。 -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-websocket</artifactId>
+            <artifactId>spring-boot-starter-web</artifactId>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>

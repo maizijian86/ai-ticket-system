@@ -243,6 +243,12 @@ CREATE TABLE ticket_chat (
 -- ============================================
 -- Knowledge Base (MySQL FULLTEXT Search)
 -- ============================================
+--
+-- ⚠️ 当前**没有任何代码读写这张表**。它唯一的消费者是 ai-service 里的 AiService
+-- （那是个 MiniMax/Anthropic 时代的旧实现），该模块已整体删除。
+-- 表本身保留（活库里还有 3 行数据），等知识库功能真正立项时再决定：
+-- 要么补后端接口 + 前端页面，要么连表一起删。
+-- 前端也没有知识库页面 —— 顶栏入口已摘除（见 Phase 5e）。
 
 CREATE TABLE knowledge_base (
     id              BIGINT AUTO_INCREMENT PRIMARY KEY,
@@ -272,41 +278,16 @@ CREATE TABLE knowledge_base (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ============================================
--- Operation Log
+-- Operation Log / AI 分类历史 —— 已移除
 -- ============================================
-
-CREATE TABLE operation_log (
-    id              BIGINT AUTO_INCREMENT PRIMARY KEY,
-    user_id         BIGINT,
-    user_name       VARCHAR(100),
-    action          VARCHAR(50) NOT NULL,
-    resource_type   VARCHAR(50),
-    resource_id     BIGINT,
-    details         JSON,
-    ip_address      VARCHAR(50),
-    user_agent      VARCHAR(500),
-    created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
-
-    INDEX idx_operation_log_user_id (user_id),
-    INDEX idx_operation_log_action (action),
-    INDEX idx_operation_log_created (created_at DESC)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
--- ============================================
--- AI Processing History
--- ============================================
-
-CREATE TABLE ai_classification_log (
-    id              BIGINT AUTO_INCREMENT PRIMARY KEY,
-    ticket_id       BIGINT NOT NULL,
-    ai_category     VARCHAR(50),
-    ai_confidence   DECIMAL(5,2),
-    corrected_category VARCHAR(50),
-    corrected_by    BIGINT,
-    created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
-
-    INDEX idx_ai_classification_ticket_id (ticket_id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+--
+-- 这里原有 operation_log 与 ai_classification_log 两张表，已随 Phase 3 一起删除：
+--   · operation_log          —— 全仓库零 .java 引用（无实体/仓储/服务/控制器/原生 SQL），
+--                               活库里也是 0 行。真正的审计诉求不存在。
+--   · ai_classification_log  —— 实体与仓储曾有，但仓储从未被注入、findByTicketId
+--                               永不被调用；它唯一的读取方是已删除的 ai-service。
+--
+-- 若将来要做操作审计，请重新设计（按需求定字段），不要照抄这两张空表。
 
 -- ============================================
 -- File Attachments Metadata

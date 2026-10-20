@@ -11,7 +11,6 @@ import com.aiticket.ticket.entity.FileAttachment;
 import com.aiticket.ticket.entity.Ticket;
 import com.aiticket.ticket.entity.TicketComment;
 import com.aiticket.ticket.enums.MembershipPlan;
-import com.aiticket.ticket.feign.AiServiceClient;
 import com.aiticket.ticket.repository.FileAttachmentRepository;
 import com.aiticket.ticket.repository.TicketCommentRepository;
 import com.aiticket.ticket.repository.TicketRepository;
@@ -101,7 +100,6 @@ public class TicketService {
 
     private final TicketRepository ticketRepository;
     private final TicketCommentRepository ticketCommentRepository;
-    private final AiServiceClient aiServiceClient;
     private final ChatService chatService;
     private final ConversationMemoryManager memoryManager;
     /** 发布者预附额度要跟建单同事务（见 createTicket），故注入本服务而非在控制器里扣 */

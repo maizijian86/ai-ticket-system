@@ -75,9 +75,9 @@ alipay:
   return-url: ${ALIPAY_RETURN_URL:http://localhost:3000/membership/result}
 
 # AI Service (for Feign)
-# 同网关：ai-service 的 server.address 已绑回环（仅 IPv4），写 localhost 可能解析到 ::1 而连不上
-ai-service:
-  url: http://127.0.0.1:8083
+# 这段配置已随 AiServiceClient 一起删除：本服务不再调用任何 Feign 客户端。
+# AI 能力（PRD / 技术建议 / 任务拆解 / 对话）全部由本服务内的 TicketAiService
+# 直接调 DeepSeek 完成，见下面的 langchain4j 配置。
 
 # LangChain4j配置
 #

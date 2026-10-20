@@ -18,10 +18,9 @@
             <groupId>com.aiticket</groupId>
             <artifactId>common</artifactId>
         </dependency>
-        <dependency>
-            <groupId>org.springframework.cloud</groupId>
-            <artifactId>spring-cloud-starter-openfeign</artifactId>
-        </dependency>
+        <!-- 此处原有 spring-cloud-starter-openfeign，只为 AiServiceClient 而引。
+             那个客户端从未被调用，且指向的 6 个 AI 端点后端并不存在，已整文件删除；
+             @EnableFeignClients 也一并摘掉了，所以这条依赖不再需要。 -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-web</artifactId>

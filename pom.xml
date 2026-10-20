@@ -23,7 +23,12 @@
         <module>common</module>
         <module>user-service</module>
         <module>ticket-service</module>
-        <module>ai-service</module>
+        <!-- ai-service 已移除：它只有 /generate-prd 与 /dev-advice 两个接口，且零调用方
+             （前端不调；ticket-service 的 AiServiceClient 虽然注入了但从未被调用，而它
+             声明的 6 个端点在 AiController 里根本不存在）。模块内 26 个 DTO 全部零引用。
+             PRD 生成与开发建议由 ticket-service 的 TicketAiService 直接完成
+             （同一个 DeepSeek 模型、同一套 Redis 记忆），功能没有损失。
+             要找回源码：git show pre-cleanup:ai-service/ -->
         <module>api-gateway</module>
     </modules>
 
