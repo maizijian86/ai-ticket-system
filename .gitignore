@@ -50,3 +50,18 @@ frontend/node_modules/
 frontend/dist/
 frontend/.vite/
 frontend/*.tsbuildinfo
+
+# OSS 连通性探针（一次性验证 AK/bucket/endpoint，不是应用代码）
+.oss-probe/
+
+# Python
+__pycache__/
+
+# 整库备份与种子运行的临时产物：备份里有真实用户数据，不进仓库
+db/backup/
+
+# 前端实测截图（Playwright 会话产物）
+frontend/.shots/
+
+# 图标站点下载下来的原始素材目录（成品已拷进 frontend/public/avatars）
+icon_tw0u8p192hc/
