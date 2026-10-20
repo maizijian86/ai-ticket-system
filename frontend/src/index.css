@@ -1,0 +1,198 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+@import "@fontsource-variable/geist";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+    --font-heading: var(--font-sans);
+    --font-sans: 'Geist Variable', sans-serif;
+    --color-sidebar-ring: var(--sidebar-ring);
+    --color-sidebar-border: var(--sidebar-border);
+    --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+    --color-sidebar-accent: var(--sidebar-accent);
+    --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+    --color-sidebar-primary: var(--sidebar-primary);
+    --color-sidebar-foreground: var(--sidebar-foreground);
+    --color-sidebar: var(--sidebar);
+    --color-chart-5: var(--chart-5);
+    --color-chart-4: var(--chart-4);
+    --color-chart-3: var(--chart-3);
+    --color-chart-2: var(--chart-2);
+    --color-chart-1: var(--chart-1);
+    --color-ring: var(--ring);
+    --color-input: var(--input);
+    --color-border: var(--border);
+    --color-destructive: var(--destructive);
+    --color-accent-foreground: var(--accent-foreground);
+    --color-accent: var(--accent);
+    --color-muted-foreground: var(--muted-foreground);
+    --color-muted: var(--muted);
+    --color-secondary-foreground: var(--secondary-foreground);
+    --color-secondary: var(--secondary);
+    --color-primary-foreground: var(--primary-foreground);
+    --color-primary: var(--primary);
+    --color-popover-foreground: var(--popover-foreground);
+    --color-popover: var(--popover);
+    --color-card-foreground: var(--card-foreground);
+    --color-card: var(--card);
+    --color-foreground: var(--foreground);
+    --color-background: var(--background);
+    --radius-sm: calc(var(--radius) * 0.6);
+    --radius-md: calc(var(--radius) * 0.8);
+    --radius-lg: var(--radius);
+    --radius-xl: calc(var(--radius) * 1.4);
+    --radius-2xl: calc(var(--radius) * 1.8);
+    --radius-3xl: calc(var(--radius) * 2.2);
+    --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+/*
+ * 亮色 —— 白底黑字，**这一套现在真的在渲染**（<html> 上不挂 .dark 了）。
+ *
+ * 色板的两条来由：
+ *   1. `--background` 是 **纯白**（oklch 的 1 0 0，不是"接近白"）。底色曾经是
+ *      近黑的 MicroSlats 海面，那片海已经撤掉，现在整站就是一张白纸。
+ *   2. 主色仍是 #7d26c0。按钮、聚焦环、选中态是同一支紫，别处也没冒出第二种紫。
+ *      `--primary-foreground` 保持近白 —— 白字压在 #7d26c0 上是对比度最高的一档。
+ *
+ * 黑与白是**对调**过来的，不是重新挑的：`--foreground` 用的就是旧 `--background`
+ * 那支近黑（同样略带紫，色相 300），所以"原来的黑底"现在就是"正文的黑"。
+ */
+:root {
+    --background: oklch(1 0 0);
+    --foreground: oklch(0.145 0.012 300);
+    --card: oklch(1 0 0);
+    --card-foreground: oklch(0.145 0.012 300);
+    --popover: oklch(1 0 0);
+    --popover-foreground: oklch(0.145 0.012 300);
+    --primary: #7d26c0;
+    --primary-foreground: oklch(0.99 0 0);
+    --secondary: oklch(0.97 0.005 300);
+    --secondary-foreground: oklch(0.205 0.012 300);
+    --muted: oklch(0.968 0.004 300);
+    --muted-foreground: oklch(0.52 0.012 300);
+    --accent: oklch(0.96 0.014 300);
+    --accent-foreground: oklch(0.205 0.012 300);
+    --destructive: oklch(0.577 0.245 27.325);
+    /* 白底上边框得够得着才看得见：12% 的黑在白纸上比深色底上的 12% 白弱得多，
+       所以这里用的是**本色相的黑**（不是纯灰），跟正文同一个色系。 */
+    --border: oklch(0.145 0.012 300 / 14%);
+    --input: oklch(0.145 0.012 300 / 18%);
+    /* 聚焦环跟主按钮同色，不是灰的 —— 键盘 Tab 到的位置一眼能认出来 */
+    --ring: #7d26c0;
+    --chart-1: oklch(0.55 0.22 305);
+    --chart-2: oklch(0.55 0.14 200);
+    --chart-3: oklch(0.6 0.14 85);
+    --chart-4: oklch(0.577 0.245 27.325);
+    --chart-5: oklch(0.55 0.13 155);
+    --radius: 0.625rem;
+    --sidebar: oklch(0.985 0.003 300);
+    --sidebar-foreground: oklch(0.145 0.012 300);
+    --sidebar-primary: #7d26c0;
+    --sidebar-primary-foreground: oklch(0.99 0 0);
+    --sidebar-accent: oklch(0.96 0.014 300);
+    --sidebar-accent-foreground: oklch(0.205 0.012 300);
+    --sidebar-border: oklch(0.145 0.012 300 / 14%);
+    --sidebar-ring: #7d26c0;
+}
+
+/*
+ * 深色那一套留着，但**当前不生效** —— index.html 的 <html> 上不挂 .dark，
+ * 所以下面这些变量没有任何元素匹配得到。
+ *
+ * 留着是因为它是"随时能翻回去"的开关：给 <html> 加回 class="dark" 就回到黑海那版，
+ * 不用重写一遍色板。哪天确定不会再翻，整块删掉即可（连同上面 @custom-variant dark 的
+ * 说明一起看：生成的 ui 组件里那 10 处 dark: 变体也是靠这个类才生效的）。
+ */
+.dark {
+    --background: oklch(0.145 0.012 300);
+    --foreground: oklch(0.97 0.004 300);
+    --card: oklch(0.196 0.014 300);
+    --card-foreground: oklch(0.97 0.004 300);
+    --popover: oklch(0.216 0.016 300);
+    --popover-foreground: oklch(0.97 0.004 300);
+    --primary: #7d26c0;
+    --primary-foreground: oklch(0.99 0 0);
+    --secondary: oklch(0.27 0.015 300);
+    --secondary-foreground: oklch(0.97 0.004 300);
+    --muted: oklch(0.26 0.013 300);
+    --muted-foreground: oklch(0.72 0.012 300);
+    --accent: oklch(0.3 0.03 300);
+    --accent-foreground: oklch(0.97 0.004 300);
+    --destructive: oklch(0.65 0.2 25);
+    --border: oklch(1 0 0 / 12%);
+    --input: oklch(1 0 0 / 16%);
+    --ring: #7d26c0;
+    --chart-1: oklch(0.62 0.22 305);
+    --chart-2: oklch(0.7 0.16 200);
+    --chart-3: oklch(0.75 0.17 85);
+    --chart-4: oklch(0.65 0.2 25);
+    --chart-5: oklch(0.7 0.15 155);
+    --sidebar: oklch(0.196 0.014 300);
+    --sidebar-foreground: oklch(0.97 0.004 300);
+    --sidebar-primary: #7d26c0;
+    --sidebar-primary-foreground: oklch(0.99 0 0);
+    --sidebar-accent: oklch(0.27 0.015 300);
+    --sidebar-accent-foreground: oklch(0.97 0.004 300);
+    --sidebar-border: oklch(1 0 0 / 12%);
+    --sidebar-ring: #7d26c0;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+    }
+  body {
+    @apply bg-background text-foreground;
+    }
+  html {
+    /* 背景也画在 <html> 上，不只是 body。底色和白纸同色之后这条不再是为了防白闪
+       （以前底色近黑，才需要提前把画布压黑），保留它只是让整页的底色只有一个来源。 */
+    @apply bg-background font-sans;
+    }
+}
+
+/*
+ * 登录/注册卡片的入场动画。
+ *
+ * 定义在这里而不是某个组件的 <style> 里，是因为两张卡片共用它，而 Tailwind 的
+ * `animate-in` 系列（tw-animate-css）没有"从下方 16px 处放大着浮上来"这一档。
+ * 组件里用内联 `style={{ animation: 'auth-card-in ...' }}` 引用 —— 内联的
+ * animation 简写不会带上 keyframes 名，所以名字必须在这里是全局可见的。
+ */
+@keyframes auth-card-in {
+  from {
+    opacity: 0;
+    transform: translateY(16px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/*
+ * 大厅工单卡 → 详情页的「从这张单展开」过渡（用户 2026-10-20）。
+ *
+ * 用 View Transitions API 做共享元素：点开的卡片在旧画面上带 `view-transition-name:
+ * ticket-card`，详情页的标题卡（加载中是等高的骨架块）带同一个名字，浏览器就会把
+ * 前者几何形变到后者 —— 位置、宽高、圆角都由它插值，我们只调时长与缓动。
+ *
+ * 名字只在**被点的那一张卡**上设置（大厅里同时只允许一个同名元素，否则整段过渡
+ * 直接失效），见 TicketList 的 expandingId。
+ */
+::view-transition-group(ticket-card) {
+  animation-duration: 420ms;
+  animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+}
+::view-transition-old(ticket-card),
+::view-transition-new(ticket-card) {
+  animation-duration: 220ms;
+}
+/* 页面其余部分走默认交叉淡入，缩短到与卡片形变同拍，收尾不会拖泥带水 */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 260ms;
+}

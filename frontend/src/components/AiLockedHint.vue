@@ -10,13 +10,7 @@
     </div>
     <div class="ai-locked-title">{{ title }}</div>
     <div v-if="detail" class="ai-locked-detail">{{ detail }}</div>
-    <el-button
-      v-if="actionText"
-      type="primary"
-      size="small"
-      class="btn-glass btn-glass-primary"
-      @click="emit('action')"
-    >
+    <el-button v-if="actionText" type="primary" size="small" @click="emit('action')">
       {{ actionText }}
     </el-button>
   </div>
@@ -46,29 +40,33 @@ const emit = defineEmits<{ action: [] }>()
   text-align: center;
 }
 
+/* 锁图标收在一枚浅灰圆里。原来是深色玻璃圆 —— 现在整站是白底，一个深色圆
+   会变成"这是错误"的重音；这里的语义只是"还没到那一步"，用中性面就够。 */
 .ai-locked-icon {
   width: 52px;
   height: 52px;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--text-tertiary);
-  background: var(--glass-bg);
-  border: 1px solid var(--glass-border);
-  border-radius: 50%;
+  color: var(--ds-ink);
+  opacity: 0.6;
+  background: var(--ds-surface-soft);
+  border-radius: var(--ds-r-full);
   margin-bottom: 4px;
 }
 
 .ai-locked-title {
   font-size: 15px;
-  font-weight: 600;
-  color: var(--text-secondary);
+  font-weight: var(--ds-fw-semi);
+  color: var(--ds-ink);
 }
 
 .ai-locked-detail {
   font-size: 13px;
+  font-weight: var(--ds-fw-light);
   line-height: 1.6;
-  color: var(--text-tertiary);
+  color: var(--ds-ink);
+  opacity: 0.7;
   max-width: 380px;
 }
 </style>

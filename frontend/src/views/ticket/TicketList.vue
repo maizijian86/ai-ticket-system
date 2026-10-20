@@ -1,90 +1,103 @@
 <template>
-  <div class="ticket-list">
-    <div class="page-header">
-      <h2>需求大厅</h2>
-      <el-button type="primary" @click="goCreate" class="btn-glass btn-glass-primary">
-        <el-icon><Plus /></el-icon> 发布需求
-      </el-button>
-    </div>
+  <div class="ds-page hall">
+    <!--
+      首屏。DESIGN.md 的页面节奏是「白底编辑体大字开场 → 黑色窄带 → 白底内容 →
+      色块叙事」。这一段承担的就是那个开场：一枚 mono 眉标 + 一行 display 大字 +
+      一句 lead，除此之外什么都不放。
+
+      登录后的主 CTA 落在这里（顶栏那两颗是导航级的），访客则由下面的浅紫促销条
+      来承接 —— 同一个视口里始终只有一枚主按钮。
+    -->
+    <section class="hall-hero">
+      <span class="ds-eyebrow hall-hero__eyebrow">REQUIREMENT HALL</span>
+      <h1 class="ds-display-lg hall-hero__title">把需求交给对的人</h1>
+      <p class="ds-body-lg hall-hero__lead">
+        发布需求 · 接单开发 · AI 全程辅助。每张工单都能拿到技术分析、PRD 文档与任务拆解。
+      </p>
+      <div v-if="authStore.token" class="hall-hero__actions">
+        <button class="ds-btn ds-btn--primary ds-btn--lg" @click="goCreate">
+          <el-icon><Plus /></el-icon> 发布需求
+        </button>
+      </div>
+    </section>
 
     <!--
-      未登录时的活动横幅。访客能完整浏览大厅，这里是他唯一会被告知"注册有东西拿"
+      未登录时的活动横幅。访客能完整浏览大厅，这里是他唯一会被告知「注册有东西拿」
       的地方 —— 说清赠什么、能拿来干什么，转化才有依据。数字取自
       utils/ai-quota.ts，与后端赠送逻辑共用一份常量。
+
+      用的是 DESIGN.md 的 promo-banner-lilac：浅紫整条 + 一枚品红 CTA。
+      品红是**单发色**（文档：一页最多一枚促销 CTA），这一条就是它。
     -->
-    <div v-if="!authStore.token" class="promo-banner glass-card">
-      <div class="promo-left">
-        <div class="promo-icon">
-          <el-icon size="22"><Present /></el-icon>
-        </div>
+    <section v-if="!authStore.token" class="ds-promo hall-promo">
+      <div class="hall-promo__left">
+        <span class="hall-promo__icon">
+          <el-icon size="18"><Present /></el-icon>
+        </span>
         <div>
-          <div class="promo-title">{{ SIGNUP_PROMO_TITLE }}</div>
-          <div class="promo-sub">AI 技术分析、PRD 文档生成、AI 开发对话，接单后即可使用</div>
+          <div class="hall-promo__title">{{ SIGNUP_PROMO_TITLE }}</div>
+          <div class="hall-promo__sub">AI 技术分析、PRD 文档生成、AI 开发对话，接单后即可使用</div>
         </div>
       </div>
-      <div class="promo-actions">
-        <el-button class="btn-glass" @click="authStore.openAuthCard('login')">登录</el-button>
-        <el-button type="primary" class="btn-glass btn-glass-primary" @click="authStore.openAuthCard('register')">
-          注册领额度
-        </el-button>
-      </div>
-    </div>
+      <button class="ds-btn ds-btn--magenta" @click="authStore.openAuthCard('register')">
+        注册领额度
+      </button>
+    </section>
 
     <!--
-      统计卡片 —— 按身份分叉，也是个人流水**唯一**的入口。
-      **访客不渲染**：这几张卡全是"我的"口径（我发布的/我接的/进行中），
+      范围卡片 —— 按身份分叉，也是个人流水**唯一**的入口。
+      **访客不渲染**：这几张卡全是「我的」口径（我发布的/我接的/进行中），
       没有身份时它们只会显示一排 0，既无意义又挤掉了本该看到的大厅列表。
       访客固定落在「待接单」这一档。
 
-      此处原来固定四张（待处理/开发中/待验收/已完成），其中三张是个人口径却摆在
-      公共大厅顶上：发布者看到"开发中"时那是别人在开发的单，接单者看到"待验收"时
-      同理。而侧边栏「待处理/我接的单/已完成/我的需求」说的又是同一批东西 ——
-      同一件事两个入口、两份几乎一样的列表。现在卡片按身份发，侧边栏那几项删掉。
+      每张卡的图标落在一块小小的粉彩色砖上（lime/lilac/mint/coral/cream）——
+      文档里 FigJam 那批「斜放的便利贴缩略图」用的就是这套语言：一排小色块读作
+      拼贴，而**不是**四五块互相争抢视线的 color-block。选中的那张反过来压成
+      纯黑面（文档：选中 = 主色面）。
     -->
-    <div class="stats-cards" v-if="authStore.token">
-      <div
+    <section v-if="authStore.token" class="hall-scopes">
+      <button
         v-for="card in cards"
         :key="card.key"
-        class="stat-card glass-card"
-        :class="{ active: activeScope === card.key }"
+        class="stat-card"
+        :class="{ 'is-active': activeScope === card.key }"
         @click="selectScope(card.key)"
       >
-        <div class="stat-icon" :class="card.iconClass">
-          <el-icon size="24"><component :is="card.icon" /></el-icon>
-        </div>
-        <div class="stat-info">
-          <div class="stat-value">{{ card.value }}</div>
-          <div class="stat-label">{{ card.label }}</div>
-        </div>
-        <div class="stat-arrow">
-          <el-icon><ArrowRight /></el-icon>
-        </div>
-      </div>
-    </div>
+        <span class="stat-tile" :class="card.iconClass">
+          <el-icon size="18"><component :is="card.icon" /></el-icon>
+        </span>
+        <span class="stat-body">
+          <span class="stat-value">{{ card.value }}</span>
+          <span class="stat-label">{{ card.label }}</span>
+        </span>
+        <el-icon class="stat-arrow" size="14"><ArrowRight /></el-icon>
+      </button>
+    </section>
 
     <!-- 当前范围的一句话说明：卡名（"进行中"）不足以说清它装了哪三种状态 -->
     <p class="scope-desc">{{ authStore.token ? activeCard.desc : guestScopeDesc }}</p>
 
-    <!-- 筛选栏。状态不在其中 —— 状态由卡片决定，两套状态选择器必然打架。
-         这里剩下的三个是在当前范围内再缩小。 -->
-    <el-card class="filter-card glass-card-static">
-      <el-form :inline="true" :model="filters" class="filter-form">
+    <!--
+      筛选栏。状态不在其中 —— 状态由卡片决定，两套状态选择器必然打架。
+      这里剩下的三个是在当前范围内再缩小。
+    -->
+    <section class="ds-card hall-filter">
+      <el-form :inline="true" :model="filters" class="hall-filter__form">
         <!-- 只有一种状态的卡（待接单/已完成）不显示状态下拉：它只有一个选项，
              摆在那里是死 UI。多状态的卡才给，默认"全部"= 这张卡自己的状态集。 -->
-        <el-form-item v-if="statusOptions.length > 1" label="状态" class="glass-form-item">
+        <el-form-item v-if="statusOptions.length > 1" label="状态">
           <el-select
             v-model="filters.status"
             placeholder="全部"
             clearable
             style="width: 130px"
-            class="glass-input"
             @change="reloadFromFirstPage"
           >
             <el-option v-for="s in statusOptions" :key="s" :label="statusLabel(s)" :value="s" />
           </el-select>
         </el-form-item>
-        <el-form-item label="分类" class="glass-form-item">
-          <el-select v-model="filters.category" placeholder="全部" clearable style="width: 120px" class="glass-input">
+        <el-form-item label="分类">
+          <el-select v-model="filters.category" placeholder="全部" clearable style="width: 120px">
             <el-option label="Bug" value="BUG" />
             <el-option label="咨询" value="CONSULT" />
             <el-option label="投诉" value="COMPLAINT" />
@@ -92,155 +105,148 @@
             <el-option label="其他" value="OTHER" />
           </el-select>
         </el-form-item>
-        <el-form-item label="优先级" class="glass-form-item">
-          <el-select v-model="filters.priority" placeholder="全部" clearable style="width: 100px" class="glass-input">
+        <el-form-item label="优先级">
+          <el-select v-model="filters.priority" placeholder="全部" clearable style="width: 100px">
             <el-option label="P0" value="P0" />
             <el-option label="P1" value="P1" />
             <el-option label="P2" value="P2" />
             <el-option label="P3" value="P3" />
           </el-select>
         </el-form-item>
-        <el-form-item label="关键词" class="glass-form-item">
-          <el-input v-model="filters.keyword" placeholder="搜索标题/内容" clearable style="width: 180px" class="glass-input" />
+        <el-form-item label="关键词">
+          <el-input v-model="filters.keyword" placeholder="搜索标题/内容" clearable style="width: 200px" />
         </el-form-item>
         <el-form-item>
-          <el-button type="primary" @click="reloadFromFirstPage" class="btn-glass btn-glass-primary">搜索</el-button>
-          <el-button @click="resetFilters" class="btn-glass">重置</el-button>
+          <button type="button" class="ds-btn ds-btn--primary" @click="reloadFromFirstPage">搜索</button>
+          <button type="button" class="ds-btn ds-btn--secondary" @click="resetFilters">重置</button>
         </el-form-item>
       </el-form>
-    </el-card>
+    </section>
 
     <!-- 图例：只在当前列表里真的有预附单时才出现（一条都没有时白占一行） -->
     <div v-if="hasPrepaid" class="prepaid-legend">
-      <el-icon><MagicStick /></el-icon>
+      <el-icon size="15"><MagicStick /></el-icon>
       <span>带「AI 已解锁」标记的单：发布者已替他附上 1 次 AI 额度 —— 接单后 AI 分析与对话免费用，不扣你自己的次数。</span>
     </div>
 
     <!-- 工单卡片网格 -->
-    <div class="tickets-grid" v-loading="loading">
-      <div
+    <section class="tickets-grid" v-loading="loading">
+      <article
         v-for="ticket in tickets"
         :key="ticket.id"
-        class="ticket-card glass-card"
-        :class="{ 'ticket-card-mine': ticket.creatorId === myId, 'ticket-card-ai': ticket.aiPrepaid }"
+        class="ticket-card"
+        :class="{ 'is-mine': ticket.creatorId === myId }"
         @click="router.push(`/tickets/${ticket.id}`)"
       >
-        <div class="ticket-card-header">
-          <span class="ticket-id">#{{ ticket.id }}</span>
-          <el-tag :type="getStatusType(ticket.status)" size="small" class="glass-tag">
-            {{ statusLabel(ticket.status) }}
-          </el-tag>
-        </div>
-        <div class="ticket-card-title">{{ ticket.title }}</div>
-        <div class="ticket-card-content">{{ ticket.content }}</div>
+        <header class="ticket-card__top">
+          <span class="ds-chip ds-chip--mono">#{{ ticket.id }}</span>
+          <span class="ticket-card__flags">
+            <span v-if="ticket.creatorId === myId" class="ds-chip ds-chip--ink ds-chip--mono">MINE</span>
+            <el-tag :type="getStatusType(ticket.status)" size="small">
+              {{ statusLabel(ticket.status) }}
+            </el-tag>
+          </span>
+        </header>
+
+        <h3 class="ticket-card__title">{{ ticket.title }}</h3>
+        <p class="ticket-card__content">{{ ticket.content }}</p>
 
         <!-- 驳回理由必须让接单者看见，否则他只知道"被拒了"却不知道改什么。
              这行原来只在「待处理」页有，那个页面已并入这里，功能不能丢。 -->
-        <div v-if="ticket.status === 'REJECTED' && ticket.rejectionReason" class="reject-reason">
+        <div v-if="ticket.status === 'REJECTED' && ticket.rejectionReason" class="ticket-note ticket-note--pink">
           驳回理由：{{ ticket.rejectionReason }}
         </div>
 
         <!-- 拖太久的提示。判据是接单时间而不是 deadline —— 实测库里 deadline
              基本全空（46 条里只有 1 条有值），按它判等于永远不触发。 -->
-        <div v-if="staleHint(ticket)" class="stale-hint">
-          <el-icon><Clock /></el-icon>
+        <div v-if="staleHint(ticket)" class="ticket-note ticket-note--cream">
+          <el-icon size="13"><Clock /></el-icon>
           <span>{{ staleHint(ticket) }}</span>
         </div>
 
+        <!--
+          发布者预附了 AI 额度：一条 lime 色带 —— 全站最想让接单者看见的信息
+          就是这个，所以给它一整块颜色，而不是一个描边标签。
+        -->
+        <div v-if="ticket.aiPrepaid" class="ticket-prepaid">
+          <span class="ticket-prepaid__badge">
+            <el-icon size="13"><MagicStick /></el-icon> AI 已解锁
+          </span>
+          <span class="ticket-prepaid__hint">发布者已附 1 次额度 · 接单后 AI 分析与对话免费</span>
+        </div>
+
         <!-- 项目信息 -->
-        <div class="ticket-project-info">
-          <el-tag v-if="ticket.projectType" size="small" type="info" class="glass-tag">
-            {{ ticket.projectType }}
-          </el-tag>
-          <span v-if="ticket.budget" class="budget">¥{{ ticket.budget }}</span>
+        <div v-if="ticket.projectType || ticket.budget" class="ticket-card__meta">
+          <span v-if="ticket.projectType" class="ds-chip">{{ ticket.projectType }}</span>
+          <span v-if="ticket.budget" class="ticket-budget">¥{{ ticket.budget }}</span>
         </div>
 
         <!-- 技术栈 -->
-        <div v-if="ticket.techStack" class="ticket-tech-stack">
-          <el-tag v-for="tech in ticket.techStack.split(',').slice(0, 3)" :key="tech" size="small" type="info" class="glass-tag tech-tag">
+        <div v-if="ticket.techStack" class="ticket-card__tech">
+          <span
+            v-for="tech in ticket.techStack.split(',').slice(0, 3)"
+            :key="tech"
+            class="ds-chip ds-chip--mono tech-chip"
+          >
             {{ tech.trim() }}
-          </el-tag>
-          <el-tag v-if="ticket.techStack.split(',').length > 3" size="small" type="info" class="glass-tag tech-tag">
-            +{{ ticket.techStack.split(',').length - 3 }}
-          </el-tag>
-        </div>
-
-        <!--
-          发布者预附了 AI 额度：打标 + 给接单者的 CTA。
-          刻意**不做**右上角飘带 —— 那个位置被 .ticket-card-mine::after 的「我的」占着，
-          发布者看自己附过额度的单会在同一个角上叠两个飘带。
-        -->
-        <div v-if="ticket.aiPrepaid" class="ai-prepaid">
-          <span class="ai-prepaid-badge">
-            <el-icon><MagicStick /></el-icon>
-            AI 已解锁
           </span>
-          <span class="ai-prepaid-hint">发布者已附 1 次额度 · 接单后 AI 分析与对话免费</span>
+          <span v-if="ticket.techStack.split(',').length > 3" class="ds-chip ds-chip--mono tech-chip">
+            +{{ ticket.techStack.split(',').length - 3 }}
+          </span>
         </div>
 
-        <div class="ticket-card-footer">
-          <div class="ticket-meta">
-            <span v-if="ticket.priority" :class="`priority-${ticket.priority}`" class="priority-badge">
-              {{ ticket.priority }}
-            </span>
-          </div>
-          <div class="ticket-time">{{ formatDate(ticket.createdAt) }}</div>
-        </div>
+        <footer class="ticket-card__footer">
+          <span
+            v-if="ticket.priority"
+            class="priority-badge"
+            :class="`priority-${ticket.priority}`"
+          >
+            {{ ticket.priority }}
+          </span>
+          <span class="ticket-card__time">{{ formatDate(ticket.createdAt) }}</span>
+        </footer>
 
         <!--
           操作区。三个按钮的判据与工单详情页完全一致（同一件事在两处入口，
           判据必须同一套），只是这里多了一重"点卡片是跳转、点按钮是操作"的
           区分 —— 所有点击都 .stop，否则点「去验收」会先跳走。
+
+          三个按钮互斥出现（接单 / 去完成 / 去验收），所以同为主色不会打架。
         -->
-        <div v-if="hasActions(ticket)" class="ticket-card-actions" @click.stop>
-          <el-button
-            v-if="canPickupOn(ticket)"
-            size="small"
-            type="success"
-            class="btn-glass btn-glass-success"
-            @click.stop="openPickup(ticket)"
-          >
+        <div v-if="hasActions(ticket)" class="ticket-card__actions" @click.stop>
+          <button v-if="canPickupOn(ticket)" class="ds-btn ds-btn--primary ds-btn--sm" @click.stop="openPickup(ticket)">
             接单
-          </el-button>
-          <el-button
-            v-if="isMyWork(ticket)"
-            size="small"
-            type="primary"
-            class="btn-glass btn-glass-primary"
-            @click.stop="openComplete(ticket)"
-          >
+          </button>
+          <button v-if="isMyWork(ticket)" class="ds-btn ds-btn--primary ds-btn--sm" @click.stop="openComplete(ticket)">
             去完成
-          </el-button>
-          <el-button
-            v-if="needsMyReview(ticket)"
-            size="small"
-            type="success"
-            class="btn-glass btn-glass-success"
-            @click.stop="openReview(ticket)"
-          >
+          </button>
+          <button v-if="needsMyReview(ticket)" class="ds-btn ds-btn--primary ds-btn--sm" @click.stop="openReview(ticket)">
             去验收
-          </el-button>
+          </button>
         </div>
-      </div>
+      </article>
 
       <!-- 空状态 -->
       <div v-if="!loading && tickets.length === 0" class="empty-state">
-        <el-icon size="48"><Document /></el-icon>
-        <p>{{ emptyText }}</p>
+        <span class="empty-state__icon">
+          <el-icon size="26"><Document /></el-icon>
+        </span>
+        <span class="ds-caption empty-state__eyebrow">NO TICKETS</span>
+        <p class="empty-state__text">{{ emptyText }}</p>
       </div>
-    </div>
+    </section>
 
     <!-- 加载更多 / 分页 -->
     <div class="load-more-container" v-if="tickets.length > 0">
-      <el-button
+      <button
         v-if="pagination.page * pagination.pageSize < pagination.total"
+        class="ds-btn ds-btn--secondary load-more-btn"
+        :disabled="loadingMore"
         @click="loadMore"
-        class="btn-glass load-more-btn"
-        :loading="loadingMore"
       >
-        加载更多 ({{ pagination.total - tickets.length }} 剩余)
-      </el-button>
-      <div v-else class="no-more">没有更多了</div>
+        {{ loadingMore ? '加载中…' : `加载更多（${pagination.total - tickets.length} 剩余）` }}
+      </button>
+      <span v-else class="ds-caption no-more">没有更多了</span>
     </div>
 
     <!-- 接单 / 去完成 / 去验收：与工单详情页共用同一组弹窗组件 -->
@@ -292,6 +298,12 @@ interface CardDef {
   label: string
   desc: string
   icon: any
+  /**
+   * 图标底下那块小色砖的类名。
+   *
+   * 取值来自 DESIGN.md 的 {colors.block-*} —— 这是全站唯一的色相来源，
+   * 所以连"待接单"和"已完成"的区别也用它来表达，而不是另发明一套语义色。
+   */
   iconClass: string
   value: number
   /** 这个范围允许的状态。既用来生成状态下拉的选项，也在用户没挑具体状态时
@@ -358,7 +370,7 @@ const cards = computed<CardDef[]>(() => {
       ? '全站还没人接的需求。你发布的需求要等接单者主动来接 —— 这一格是别人发的单，你可以点进去看，但发布者身份不提供接单入口。'
       : '全站还没人接的需求，点进去可以直接接单。',
     icon: Clock,
-    iconClass: 'stat-icon-pending',
+    iconClass: 'tile-lime',
     value: s.open,
     statuses: ['OPEN'],
     defaultStatus: 'OPEN',
@@ -371,7 +383,7 @@ const cards = computed<CardDef[]>(() => {
     label: '我发布的',
     desc: '我发布过的全部需求，不限状态 —— 包括已关闭这类在别的格里看不到的单。',
     icon: Folder,
-    iconClass: 'stat-icon-resolved',
+    iconClass: 'tile-lilac',
     value: s.createdTotal,
     statuses: ALL_STATUSES,
     defaultStatus: '',
@@ -383,7 +395,7 @@ const cards = computed<CardDef[]>(() => {
     label: '我接的单',
     desc: '我接过的全部单子，不限状态 —— 在做的和已完成的都在这里。',
     icon: Suitcase,
-    iconClass: 'stat-icon-closed',
+    iconClass: 'tile-mint',
     value: s.handledTotal,
     statuses: ALL_STATUSES,
     defaultStatus: '',
@@ -395,7 +407,7 @@ const cards = computed<CardDef[]>(() => {
     label: '已完成',
     desc: '我参与过、且已验收通过的工单 —— 我发布的和我接的都算。',
     icon: Finished,
-    iconClass: 'stat-icon-closed',
+    iconClass: 'tile-cream',
     value: s.completedAsParticipant,
     statuses: ['COMPLETED'],
     defaultStatus: 'COMPLETED',
@@ -412,7 +424,7 @@ const cards = computed<CardDef[]>(() => {
         label: '进行中',
         desc: '我发布的、已经有人在做但还没验收通过的单 —— 含开发中、待我验收、被驳回返工三种。',
         icon: Loading,
-        iconClass: 'stat-icon-processing',
+        iconClass: 'tile-coral',
         value: s.activeAsCreator,
         statuses: ACTIVE_STATUSES,
         defaultStatus: '',
@@ -431,7 +443,7 @@ const cards = computed<CardDef[]>(() => {
         label: '进行中',
         desc: '我手上还没结的单 —— 含待我交付、已交付等对方验收、被驳回要返工三种。',
         icon: Loading,
-        iconClass: 'stat-icon-processing',
+        iconClass: 'tile-coral',
         value: s.activeAsHandler,
         statuses: ACTIVE_STATUSES,
         defaultStatus: '',
@@ -453,7 +465,7 @@ const cards = computed<CardDef[]>(() => {
       label: '进行中',
       desc: '我发布的、已经有人在做但还没验收通过的单。我接的单那边的在途进度去「我接的单」里看。',
       icon: Loading,
-      iconClass: 'stat-icon-processing',
+      iconClass: 'tile-coral',
       value: s.activeAsCreator,
       statuses: ACTIVE_STATUSES,
       defaultStatus: '',
@@ -736,453 +748,486 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.page-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 24px;
+/* ============================================================
+   首屏
+   ============================================================ */
+.hall-hero {
+  padding-bottom: var(--ds-s-xxl);
+  /* 这一整块是**浮在黑海上的**：.ds-page 没有自己的背景，海直接透上来。
+     所以墨色(--ds-ink: #000)在这儿等于隐形，整块改用白色系，
+     正文比标题低一档透明度，层次还是靠明度差撑。 */
+  color: var(--ds-inverse-ink);
 }
 
-.page-header h2 {
-  font-size: 24px;
-  font-weight: 700;
-  color: var(--text-primary);
-  letter-spacing: -0.5px;
+.hall-hero__eyebrow {
+  display: block;
+  margin-bottom: var(--ds-s-lg);
+  /* 眉标自己有颜色（.ds-eyebrow），继承不到上面那行，得单独提亮 */
+  color: rgba(255, 255, 255, 0.6);
 }
 
-/* ---------------- 未登录活动横幅 ---------------- */
-.promo-banner {
+/* 中文标题在 display-lg(64px) 下要收紧行高、并且限制行长 —— 一行超过
+   约 12 个汉字就会散掉，max-width 让第二行只在必要时出现。 */
+.hall-hero__title {
+  max-width: 16ch;
+  margin-bottom: var(--ds-s-md);
+}
+
+.hall-hero__lead {
+  max-width: 52ch;
+  margin-bottom: var(--ds-s-xl);
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.hall-hero__actions {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 20px;
+  gap: var(--ds-s-sm);
   flex-wrap: wrap;
-  padding: 18px 22px;
-  margin-bottom: 20px;
-  border: 1px solid rgba(255, 159, 10, 0.32);
-  background: linear-gradient(135deg, rgba(255, 159, 10, 0.14), rgba(94, 92, 230, 0.14));
 }
 
-.promo-left {
+/* ============================================================
+   访客促销条（浅紫 + 品红单发 CTA）
+   ============================================================ */
+.hall-promo {
+  margin-bottom: var(--ds-s-xxl);
+}
+
+.hall-promo__left {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: var(--ds-s-md);
   min-width: 0;
 }
 
-.promo-icon {
+.hall-promo__icon {
+  width: 42px;
+  height: 42px;
   flex: none;
-  width: 44px;
-  height: 44px;
+  border-radius: var(--ds-r-full);
+  background: var(--ds-canvas);
+  color: var(--ds-ink);
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #fff;
-  border-radius: var(--radius-md);
-  background: linear-gradient(135deg, var(--accent-warning), var(--accent-secondary));
-  box-shadow: 0 4px 16px rgba(255, 159, 10, 0.35);
 }
 
-.promo-title {
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--text-primary);
-  margin-bottom: 4px;
+.hall-promo__title {
+  font-size: var(--ds-fs-body-lg);
+  font-weight: var(--ds-fw-semi);
+  letter-spacing: -0.2px;
+  line-height: 1.3;
 }
 
-.promo-sub {
-  font-size: 13px;
-  color: var(--text-tertiary);
+.hall-promo__sub {
+  font-size: 15px;
+  font-weight: var(--ds-fw-light);
+  line-height: 1.45;
+  margin-top: 2px;
 }
 
-.promo-actions {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex: none;
-}
-
-/* 统计卡片 */
-/* auto-fill 而不是固定 4 列：身份不同卡片数是 4 或 5（存量 USER/ADMIN 拿 5 张），
-   固定 4 列会让第 5 张孤零零换行、前 4 张被拉宽到变形。 */
-.stats-cards {
+/* ============================================================
+   范围卡片（一排粉彩色砖 + 选中压黑）
+   ============================================================ */
+.hall-scopes {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-  gap: 20px;
-  margin-bottom: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: var(--ds-s-sm);
 }
 
 .stat-card {
-  padding: 20px;
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: var(--ds-s-sm);
+  text-align: left;
+  background: var(--ds-canvas);
+  border: 1px solid var(--ds-hairline);
+  border-radius: var(--ds-r-lg);
+  padding: 14px 16px;
   cursor: pointer;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  position: relative;
-  overflow: hidden;
-}
-
-.stat-card::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(135deg, rgba(255,255,255,0.1) 0%, transparent 50%);
-  opacity: 0;
-  transition: opacity 0.3s ease;
+  font-family: var(--ds-font-sans);
+  transition: border-color 0.2s ease, background 0.2s ease, color 0.2s ease;
 }
 
 .stat-card:hover {
-  transform: translateY(-4px);
-  box-shadow: var(--glass-shadow-hover);
+  border-color: var(--ds-ink);
 }
 
-.stat-card:hover::before {
-  opacity: 1;
-}
-
-.stat-card:active {
-  transform: translateY(-1px);
-}
-
-.stat-card.active {
-  border-color: var(--accent-primary) !important;
-  box-shadow: 0 0 0 2px rgba(0, 122, 255, 0.3), var(--glass-shadow);
-}
-
-.stat-card.active .stat-icon {
-  transform: scale(1.1);
-}
-
-.stat-arrow {
-  color: var(--text-tertiary);
-  transition: all 0.3s ease;
-  opacity: 0;
-  transform: translateX(-10px);
-}
-
-.stat-card:hover .stat-arrow,
-.stat-card.active .stat-arrow {
-  opacity: 1;
-  transform: translateX(0);
-  color: var(--accent-primary);
-}
-
-.stat-icon {
-  width: 52px;
-  height: 52px;
-  border-radius: var(--radius-md);
+.stat-tile {
+  width: 38px;
+  height: 38px;
+  flex: none;
+  border-radius: var(--ds-r-md);
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #fff;
-  transition: transform 0.3s ease;
+  color: var(--ds-ink);
 }
 
-.stat-icon-pending {
-  background: linear-gradient(135deg, var(--accent-warning), #ffb347);
-  box-shadow: 0 4px 16px rgba(255, 159, 10, 0.4);
+/* 五种色砖。取值全部来自 DESIGN.md 的 {colors.block-*}。 */
+.tile-lime {
+  background: var(--ds-block-lime);
+}
+.tile-lilac {
+  background: var(--ds-block-lilac);
+}
+.tile-mint {
+  background: var(--ds-block-mint);
+}
+.tile-coral {
+  background: var(--ds-block-coral);
+}
+.tile-cream {
+  background: var(--ds-block-cream);
 }
 
-.stat-icon-processing {
-  background: linear-gradient(135deg, var(--accent-primary), var(--accent-info));
-  box-shadow: 0 4px 16px rgba(0, 122, 255, 0.4);
-}
-
-.stat-icon-resolved {
-  background: linear-gradient(135deg, var(--accent-success), #7dffb3);
-  box-shadow: 0 4px 16px rgba(48, 209, 88, 0.4);
-}
-
-.stat-icon-closed {
-  background: linear-gradient(135deg, var(--text-tertiary), var(--text-secondary));
-  box-shadow: 0 4px 16px rgba(255, 255, 255, 0.1);
-}
-
-.stat-info {
-  flex: 1;
+.stat-body {
+  display: flex;
+  flex-direction: column;
   min-width: 0;
+  flex: 1;
 }
 
+/* 数字用 mono 并压到 24px/540 —— 它是这一格里唯一需要被"读出来"的东西 */
 .stat-value {
-  font-size: 28px;
-  font-weight: 700;
-  color: var(--text-primary);
+  font-family: var(--ds-font-mono);
+  font-size: 22px;
+  font-weight: 500;
+  line-height: 1.1;
+  letter-spacing: -0.4px;
 }
 
 .stat-label {
   font-size: 13px;
-  color: var(--text-tertiary);
-  margin-top: 4px;
+  font-weight: var(--ds-fw-regular);
+  margin-top: 3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-/* 当前范围说明 */
+.stat-arrow {
+  flex: none;
+  opacity: 0.35;
+  transition: transform 0.2s ease, opacity 0.2s ease;
+}
+
+.stat-card:hover .stat-arrow {
+  opacity: 1;
+  transform: translateX(2px);
+}
+
+/* 选中 = 主色面。与顶栏、选项卡、分页当前页同一条规则：选中态画成一个
+   正在生效的主 CTA，而不是一个被动的状态色。 */
+.stat-card.is-active {
+  background: var(--ds-primary);
+  border-color: var(--ds-primary);
+  color: var(--ds-on-primary);
+}
+
+.stat-card.is-active .stat-arrow {
+  opacity: 0.7;
+}
+
+/* ============================================================
+   范围说明 / 筛选栏
+   ============================================================ */
 .scope-desc {
-  margin: 0 0 20px 2px;
-  font-size: 13px;
-  line-height: 1.6;
-  color: var(--text-secondary);
+  font-size: 15px;
+  font-weight: var(--ds-fw-light);
+  line-height: 1.55;
+  color: var(--ds-ink);
+  margin: var(--ds-s-md) 0 0;
+  padding-left: var(--ds-s-md);
+  border-left: 2px solid var(--ds-ink);
+  max-width: 80ch;
 }
 
-/* 工单卡片网格 */
+.hall-filter {
+  margin-top: var(--ds-s-lg);
+  padding: var(--ds-s-md) var(--ds-s-lg) 0;
+}
+
+.hall-filter__form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0 var(--ds-s-xs);
+}
+
+.hall-filter__form :deep(.el-form-item) {
+  margin-bottom: var(--ds-s-md);
+  margin-right: var(--ds-s-md);
+}
+
+/* 搜索/重置是一对原生胶囊，得跟 el-select 的高度对齐 */
+.hall-filter__form :deep(.el-form-item:last-child .el-form-item__content) {
+  display: flex;
+  gap: var(--ds-s-xs);
+}
+
+/* ============================================================
+   工单卡片
+   ============================================================ */
 .tickets-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 20px;
-  margin-bottom: 24px;
-  min-height: 200px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--ds-s-lg);
+  margin-top: var(--ds-s-lg);
+  align-items: start;
 }
 
 .ticket-card {
-  padding: 20px;
-  cursor: pointer;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  position: relative;
+  gap: var(--ds-s-sm);
+  background: var(--ds-canvas);
+  border: 1px solid var(--ds-hairline);
+  border-radius: var(--ds-r-lg);
+  padding: var(--ds-s-lg);
+  cursor: pointer;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
 }
 
 .ticket-card:hover {
-  transform: translateY(-6px);
-  box-shadow: var(--glass-shadow-hover);
-}
-
-.ticket-card:active {
+  border-color: var(--ds-ink);
+  box-shadow: var(--ds-shadow-float);
   transform: translateY(-2px);
-  transition-duration: 0.1s;
 }
 
-/* 自己的工单卡片样式 */
-.ticket-card-mine {
-  border: 1px solid rgba(48, 209, 88, 0.5) !important;
-  box-shadow: 0 0 0 1px rgba(48, 209, 88, 0.2), var(--glass-shadow);
-}
-
-.ticket-card-mine::after {
-  content: '我的';
-  position: absolute;
-  top: 20px;
-  right: 12px;
-  background: linear-gradient(135deg, #30d155, #7dffb3);
-  color: #fff;
-  font-size: 11px;
-  font-weight: 600;
-  padding: 2px 8px;
-  border-radius: 10px;
-}
-
-/* 发布者预附过 AI 额度的卡片：一层很淡的琥珀底 + 卡内的标记（见 .ai-prepaid）。
-   刻意只用 background-image —— .ticket-card-mine 那边用了 !important 的 border 和
-   自带的 box-shadow，动这两样中的一个就会把"我的"那圈绿边或阴影挤掉。 */
-.ticket-card-ai {
-  background-image: linear-gradient(180deg, rgba(230, 162, 60, 0.1), rgba(230, 162, 60, 0.02));
-}
-
-.ai-prepaid {
+.ticket-card__top {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.ai-prepaid-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 2px 8px;
-  border-radius: 10px;
-  font-size: 12px;
-  font-weight: 600;
-  color: #d9930a;
-  background: rgba(230, 162, 60, 0.16);
-  border: 1px solid rgba(230, 162, 60, 0.45);
-}
-
-.ai-prepaid-hint {
-  font-size: 12px;
-  color: var(--text-secondary);
-}
-
-/* 图例。自带底色，不挂 .glass-card-static —— 那个类的 background 会与本类的
-   琥珀底打架，谁赢取决于两张样式表的加载顺序。 */
-.prepaid-legend {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 16px;
-  padding: 10px 14px;
-  border-radius: 10px;
-  font-size: 13px;
-  color: var(--text-secondary);
-  background: rgba(230, 162, 60, 0.12);
-  border: 1px solid rgba(230, 162, 60, 0.35);
-}
-
-.prepaid-legend .el-icon {
-  color: #d9930a;
-  flex-shrink: 0;
-}
-
-.ticket-card-header {
-  display: flex;
   justify-content: space-between;
+  gap: var(--ds-s-xs);
+}
+
+.ticket-card__flags {
+  display: flex;
   align-items: center;
+  gap: 6px;
 }
 
-.ticket-id {
-  color: var(--text-tertiary);
-  font-size: 13px;
-  font-weight: 500;
-}
-
-.ticket-card-title {
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--text-primary);
-  line-height: 1.4;
+.ticket-card__title {
+  font-size: var(--ds-fs-body-lg);
+  font-weight: var(--ds-fw-semi);
+  line-height: 1.35;
+  letter-spacing: -0.2px;
+  color: var(--ds-ink);
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
 
-.ticket-card-content {
-  font-size: 13px;
-  color: var(--text-secondary);
-  line-height: 1.5;
+.ticket-card__content {
+  font-size: 15px;
+  font-weight: var(--ds-fw-light);
+  line-height: 1.55;
+  color: var(--ds-ink);
   display: -webkit-box;
   -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
-  flex: 1;
 }
 
-/* 驳回理由：原来只在「待处理」页有，页面并入这里后跟着搬过来 */
-.reject-reason {
-  font-size: 12px;
+/* 卡片内的说明色带：驳回理由（粉）、拖太久（奶油）。都是小面积的粉彩，
+   黑字压在上面比原来的彩底白字清楚得多。 */
+.ticket-note {
+  border-radius: var(--ds-r-sm);
+  padding: 8px 12px;
+  font-size: 13px;
   line-height: 1.5;
-  color: var(--accent-danger, #f56c6c);
-  padding: 6px 8px;
-  border-radius: 6px;
-  background: rgba(255, 69, 58, 0.1);
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
+  color: var(--ds-ink);
 }
 
-/* 拖太久的提示 */
-.stale-hint {
+.ticket-note--pink {
+  background: var(--ds-block-pink);
+}
+
+.ticket-note--cream {
+  background: var(--ds-block-cream);
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 12px;
-  color: var(--accent-warning);
 }
 
-.ticket-project-info {
+/* 预附额度：全站最想让接单者看见的一条，所以给整块 lime */
+.ticket-prepaid {
+  background: var(--ds-block-lime);
+  border-radius: var(--ds-r-md);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.ticket-prepaid__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 13px;
+  font-weight: var(--ds-fw-semi);
+  color: var(--ds-ink);
+}
+
+.ticket-prepaid__hint {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--ds-ink);
+}
+
+.ticket-card__meta {
   display: flex;
   align-items: center;
-  gap: 8px;
-}
-
-.budget {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--accent-success);
-}
-
-.ticket-tech-stack {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-}
-
-.tech-tag {
-  font-size: 11px !important;
-  padding: 2px 6px !important;
-}
-
-.ticket-card-footer {
-  display: flex;
   justify-content: space-between;
-  align-items: center;
-  margin-top: auto;
+  gap: var(--ds-s-xs);
 }
 
-.ticket-meta {
+.ticket-budget {
+  font-family: var(--ds-font-mono);
+  font-size: 18px;
+  font-weight: 500;
+  letter-spacing: -0.4px;
+  color: var(--ds-ink);
+}
+
+.ticket-card__tech {
   display: flex;
-  gap: 8px;
-  align-items: center;
-}
-
-.priority-badge {
-  font-size: 12px;
-  font-weight: 600;
-  padding: 2px 8px;
-  border-radius: 4px;
-}
-
-.priority-badge.priority-P0 { background: rgba(255, 69, 58, 0.2); color: var(--accent-danger); }
-.priority-badge.priority-P1 { background: rgba(255, 159, 10, 0.2); color: var(--accent-warning); }
-.priority-badge.priority-P2 { background: rgba(100, 210, 255, 0.2); color: var(--accent-info); }
-.priority-badge.priority-P3 { background: rgba(255, 255, 255, 0.1); color: var(--text-tertiary); }
-
-.ticket-time {
-  font-size: 12px;
-  color: var(--text-tertiary);
-}
-
-/* 卡片上的操作按钮。上边框把它和卡片正文分开，免得看着像又一个标签行 */
-.ticket-card-actions {
-  display: flex;
-  gap: 8px;
   flex-wrap: wrap;
-  padding-top: 12px;
-  border-top: 1px solid var(--glass-border);
+  gap: 5px;
 }
 
-/* 空状态 */
+.tech-chip {
+  font-size: 11px;
+  padding: 2px 7px;
+  background: var(--ds-surface-soft);
+}
+
+.ticket-card__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ds-s-xs);
+  margin-top: auto;
+  padding-top: var(--ds-s-sm);
+  border-top: 1px solid var(--ds-hairline-soft);
+}
+
+/* 优先级徽标定义在 main.css（.priority-badge）：详情页的标题行也要用同一枚，
+   放在这里的话那份 scoped 样式盖不到它。 */
+
+.ticket-card__time {
+  font-family: var(--ds-font-mono);
+  font-size: 11px;
+  letter-spacing: 0.4px;
+  color: var(--ds-ink);
+  opacity: 0.55; /* 时间戳是弱信息，这里用透明度而不是灰色 —— 单色系统里没有中灰这个角色 */
+}
+
+.ticket-card__actions {
+  display: flex;
+  gap: var(--ds-s-xs);
+  margin-top: var(--ds-s-xxs);
+}
+
+/* ============================================================
+   空状态 / 加载更多
+   ============================================================ */
 .empty-state {
   grid-column: 1 / -1;
   display: flex;
   flex-direction: column;
   align-items: center;
+  gap: var(--ds-s-sm);
+  padding: var(--ds-s-section) var(--ds-s-lg);
+  background: var(--ds-surface-soft);
+  border-radius: var(--ds-r-lg);
+  text-align: center;
+}
+
+.empty-state__icon {
+  width: 56px;
+  height: 56px;
+  border-radius: var(--ds-r-full);
+  background: var(--ds-canvas);
+  display: flex;
+  align-items: center;
   justify-content: center;
-  padding: 60px 20px;
-  color: var(--text-tertiary);
-  gap: 16px;
+  color: var(--ds-ink);
 }
 
-.empty-state p {
-  font-size: 16px;
+.empty-state__eyebrow {
+  color: var(--ds-ink);
+  opacity: 0.5;
 }
 
-/* 加载更多 */
+.empty-state__text {
+  font-size: var(--ds-fs-body-lg);
+  font-weight: var(--ds-fw-normal);
+  letter-spacing: -0.2px;
+  color: var(--ds-ink);
+}
+
 .load-more-container {
   display: flex;
   justify-content: center;
-  padding: 20px 0;
+  margin-top: var(--ds-s-xxl);
 }
 
 .load-more-btn {
-  min-width: 200px;
+  min-width: 240px;
 }
 
 .no-more {
-  color: var(--text-tertiary);
-  font-size: 14px;
+  color: var(--ds-ink);
+  opacity: 0.45;
+  padding: var(--ds-s-xs) 0;
 }
 
-.filter-card {
-  margin-bottom: 20px;
+/* ============================================================
+   响应式
+   ============================================================ */
+@media (max-width: 1180px) {
+  .tickets-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
-.filter-form {
-  display: flex;
-  align-items: flex-end;
-  flex-wrap: wrap;
-  gap: 16px;
+@media (max-width: 768px) {
+  .tickets-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .hall-hero__title {
+    max-width: none;
+  }
+
+  .hall-filter {
+    padding: var(--ds-s-md) var(--ds-s-md) 0;
+  }
+
+  /* 移动端两个筛选按钮撑满一行，指尖好按 */
+  .hall-filter__form :deep(.el-form-item:last-child) {
+    width: 100%;
+    margin-right: 0;
+  }
+
+  .hall-filter__form :deep(.el-form-item:last-child .el-form-item__content) {
+    width: 100%;
+  }
+
+  .hall-filter__form :deep(.el-form-item:last-child .ds-btn) {
+    flex: 1;
+  }
+}
+
+@media (max-width: 560px) {
+  .stat-card {
+    padding: 12px 14px;
+  }
+
+  .hall-promo {
+    padding: var(--ds-s-md);
+  }
 }
 </style>

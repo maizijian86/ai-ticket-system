@@ -1,13 +1,32 @@
 <!DOCTYPE html>
+<!--
+  **这里不再挂 class="dark"** —— 全站改成白底黑字，走 index.css 里 :root 那一套亮色变量。
+
+  这个类曾经是必须的：shadcn 生成的 ui 组件里有 10 个用了 dark: 变体（比如 button
+  的 outline 分支是 `dark:border-input dark:bg-input/30`），而 index.css 里的变体定义
+  是 `@custom-variant dark (&:is(.dark *))` —— 没有这个祖先类，那些变体永远不生效。
+  反过来，**摘掉这个类就是让那些组件走亮色分支**，正是现在要的，一个 ui 组件都不用改。
+-->
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" type="image/png" href="/favicon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>AI 智能工单系统</title>
+    <meta name="color-scheme" content="light" />
+    <meta name="theme-color" content="#ffffff" />
+    <title>百川灵构 · AI 智能工单系统</title>
+
+    <!--
+      字体不再从 Google Fonts 取。上一版用 Inter + JetBrains Mono 顶替设计文档里的
+      figmaSans / figmaMono，代价是两个 preconnect 加一次跨域往返，而且**断网时
+      静默失败**、字重档位掉回系统能给的几档。
+
+      Geist Variable 是本地依赖（@fontsource-variable/geist，由 index.css 引入），
+      随包一起构建，没有外部请求，也不存在断网退化。
+    -->
   </head>
   <body>
-    <div id="app"></div>
-    <script type="module" src="/src/main.ts"></script>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

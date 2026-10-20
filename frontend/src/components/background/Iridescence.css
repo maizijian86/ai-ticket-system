@@ -1,0 +1,16 @@
+/* 与 Iridescence.jsx 配套的样式，随上游组件一起原样引入。 */
+
+.iridescence-container {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+.iridescence-canvas {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+}

@@ -10,7 +10,12 @@
     "resolveJsonModule": true,
     "isolatedModules": true,
     "noEmit": true,
-    "jsx": "preserve",
+    // 要能 import 那些原样引入的 .jsx（React 组件），否则 vue-tsc 会报 TS2307。
+    // checkJs 不开：那些文件是上游源码，不该被本项目的规则挑刺。
+    "allowJs": true,
+    // 原来是 "preserve"（Vue 官方模板给 vue-tsc 用的）。改成 react-jsx：
+    // "preserve" 传到 esbuild 那边等于「别转 JSX」，浏览器拿到裸 JSX 会直接语法错。
+    "jsx": "react-jsx",
     "strict": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
@@ -19,6 +24,6 @@
       "@/*": ["./src/*"]
     }
   },
-  "include": ["src/**/*.ts", "src/**/*.tsx", "src/**/*.vue"],
+  "include": ["src/**/*.ts", "src/**/*.tsx", "src/**/*.jsx", "src/**/*.vue"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }

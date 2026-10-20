@@ -1,4 +1,4 @@
-import request from '@/utils/axios'
+import request from '@/api/client'
 import type {
   TicketDTO,
   CreateTicketRequest,
@@ -11,7 +11,9 @@ import type {
   SendChatRequest,
   CompleteTicketRequest,
   ApproveTicketRequest,
-  AiQuotaStatusDTO
+  AiQuotaStatusDTO,
+  AiChatHistoryItem,
+  DeliveryFile
 } from '@/types'
 
 /**
@@ -83,8 +85,36 @@ export const ticketApi = {
   },
 
   // 交付 —— 接单者填交付凭证（仓库地址），工单进入待验收
+  //
+  // ⚠️ **这个方法已经打不通了，别再调它**：后端 `POST /{id}/complete` 已改成
+  // multipart（见下面的 uploadDelivery），再传 JSON 会被 415 拒掉。留着它只是因为
+  // 旧 Vue 的 CompleteDeliveryDialog.vue 还在引用它，而那个文件在类型检查范围内 ——
+  // 删这里会连带把 `npm run type-check` 弄红。P6 清 .vue 的时候和它一起删。
   completeTicket(id: number, data: CompleteTicketRequest) {
     return request.post<any, TicketDTO>(`/v1/tickets/${id}/complete`, data)
+  },
+
+  /**
+   * 交付 —— 接单者上传压缩包，工单随之进入待验收。
+   *
+   * **上传和状态流转是同一件事**：后端没有"不传文件的交付"这条路径，所以这个
+   * 方法成功返回即意味着工单已经是 PENDING_APPROVAL 了，调用方不用再补一次状态变更。
+   *
+   * 走 FormData，字段名固定 `file`（与头像上传一致）；**不要手写 Content-Type** ——
+   * 让它自己带 boundary，手写成 `multipart/form-data` 反而会少一个 boundary 而 400。
+   */
+  uploadDelivery(id: number, file: File) {
+    const form = new FormData()
+    form.append('file', file)
+    return request.post<any, TicketDTO>(`/v1/tickets/${id}/complete`, form)
+  },
+
+  /**
+   * 一个工单的交付物列表。发布者用它验收、接单人用它回看自己交了什么。
+   * 服务端只发给该工单的发布者或接单人（访客/路人 403）。
+   */
+  listDeliveryFiles(id: number) {
+    return request.get<any, DeliveryFile[]>(`/v1/tickets/${id}/delivery`)
   },
 
   // 验收 —— 发布者通过或驳回，驳回必须给理由
@@ -122,6 +152,20 @@ export const ticketApi = {
     return request.post<any, ChatMessageDTO>(`/v1/tickets/${id}/ai-chat`, { message }, {
       timeout: AI_TIMEOUT
     })
+  },
+
+  /**
+   * AI 对话历史 —— 刷新页面后把气泡补回来。
+   *
+   * 来源是 Redis 里的会话记忆本身，所以：只有最近 20 条、没有时间戳、验收通过后
+   * 会被清空。**读不到就是空数组**，不是错误 —— 别在这里 catch 出一句 toast，
+   * "还没有聊过"和"历史读不出来"对用户是同一件事。
+   *
+   * 权限与 aiChat 相同（只给接单人），所以未登录或非接单人调用会 401/403。
+   * 调用方要自己先判断"我是不是接单人"，别让访客发出这个请求。
+   */
+  getAiChatHistory(id: number) {
+    return request.get<any, AiChatHistoryItem[]>(`/v1/tickets/${id}/ai-chat/history`)
   },
 
   /**

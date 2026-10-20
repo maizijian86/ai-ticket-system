@@ -1,9 +1,24 @@
-import request from '@/utils/axios'
-import type { PageResult, UserDTO, UserSkillDTO, Role } from '@/types'
+import request from '@/api/client'
+import type { PageResult, UserDTO, UserAvatarDTO, UserSkillDTO, Role } from '@/types'
 
 export const userApi = {
   getUser(id: number) {
     return request.get<any, UserDTO>(`/v1/users/${id}`)
+  },
+
+  /**
+   * 按用户名查头像（匿名可读）。登录卡边输边显示用。
+   * 未知用户后端返回 `data: null` 而不是 404 —— 正常输入过程不该弹报错。
+   */
+  getAvatarByUsername(username: string) {
+    return request.get<any, UserAvatarDTO | null>('/v1/users/avatar', { params: { username } })
+  },
+
+  /** 批量头像（匿名可读），id → 头像地址。返回里没有的 id 由调用方走首字母兜底 */
+  getAvatars(ids: number[]) {
+    return request.get<any, Record<string, string>>('/v1/users/avatars', {
+      params: { ids: ids.join(',') }
+    })
   },
 
   listUsers(page: number = 1, pageSize: number = 10, role?: Role) {

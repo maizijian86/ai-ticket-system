@@ -1,0 +1,31 @@
+/* ScrollVelocity 的配套样式，随上游组件一起原样引入。
+   注意里面 `.parallax` / `.scroller` 是**通用名**：本项目使用时会通过
+   parallaxClassName / scrollerClassName 换成 ds-velocity__* 前缀，
+   所以这两条规则实际只对不传类名的调用生效（即默认外观）。 */
+
+.parallax {
+  position: relative;
+  overflow: hidden;
+}
+
+.scroller {
+  display: flex;
+  white-space: nowrap;
+  text-align: center;
+  font-family: sans-serif;
+  font-size: 2.25rem;
+  font-weight: bold;
+  letter-spacing: -0.02em;
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.1));
+}
+
+.scroller span {
+  flex-shrink: 0;
+}
+
+@media (min-width: 768px) {
+  .scroller {
+    font-size: 5rem;
+    line-height: 5rem;
+  }
+}

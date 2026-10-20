@@ -1,4 +1,4 @@
-import request from '@/utils/axios'
+import request from '@/api/client'
 import type {
   MembershipPlanDTO,
   MembershipDTO,

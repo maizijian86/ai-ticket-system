@@ -12,6 +12,11 @@ export interface LoginResponse {
   /** 是后端 Role 枚举的 name()，不是随便一个字符串 —— 所以收紧成 Role */
   role: Role
   nickname: string
+  /**
+   * 头像。两种形态（后端 UserService.displayAvatar 已经统一过）：
+   * `default:N`（前端映射 public/avatars/N.svg）或可直接用的 https 地址。
+   */
+  avatarUrl?: string
 }
 
 export interface RegisterRequest {
@@ -42,10 +47,22 @@ export interface UserDTO {
   username: string
   email: string
   nickname: string
+  /** 与 LoginResponse.avatarUrl 同构：`default:N` 或 https 地址 */
+  avatarUrl?: string
   role: Role
   status: string
   lastLoginAt?: string
   createdAt?: string
+}
+
+/**
+ * 匿名可读的头像信息（GET /users/avatar?username= 的返回）。
+ * 只有这三个字段 —— 那条接口不登录也能调，后端刻意没把 email/role 放进来。
+ */
+export interface UserAvatarDTO {
+  username: string
+  nickname: string
+  avatarUrl?: string
 }
 
 /**
@@ -141,6 +158,11 @@ export interface TicketDTO {
    * 不要用这个字段替代 —— 接单人自己付费解锁的单 aiPrepaid 是 false。
    */
   aiPrepaid?: boolean
+  /**
+   * 发布者是会员：这张单在大厅里优先曝光。后端 TicketDTO 一直在返回它，
+   * 前端这次补上 —— 详情页把它显示成一枚「大厅优先曝光」的 chip。
+   */
+  memberPromoted?: boolean
   // 交付与验收。后端一直有这几个字段并一直在序列化，这里以前漏了 ——
   // 于是「交付凭证」「驳回理由」在类型上根本不存在，页面也就没地方显示它们。
   completionProof?: string
@@ -358,6 +380,40 @@ export interface SendChatRequest {
   content: string
 }
 
+/**
+ * AI 对话历史里的一条。与后端 AiChatMessageDTO 一一对应。
+ *
+ * **不是 ChatMessageDTO**（上面那个是发布者↔接单人的私聊，落 ticket_chat 表、
+ * 有发送人和时间）。这个是接单人和模型之间的对话，来源是 Redis 里的会话记忆，
+ * 所以：只有两个角色、没有时间字段、最多只有最近 20 条、验收通过后会被清掉。
+ *
+ * ⚠️ 叫 HistoryItem 而不是 AiChatMessage，是为了跟 `hooks/useTicketAi.ts` 里那个
+ * 同名的**气泡**类型分开：两者名字撞车、角色词汇表还不一样（这里是后端的
+ * `'user' | 'ai'`，气泡那边是界面的 `'user' | 'assistant'`），引用错了不会报错，
+ * 只会让 AI 的回答以一个不认得的 role 渲染成空白气泡。hook 里做一次显式换算。
+ */
+export interface AiChatHistoryItem {
+  role: 'user' | 'ai'
+  content: string
+}
+
+/**
+ * 一个交付物（接单者「去完成」传上来的压缩包）。与后端 FileAttachmentDTO 一一对应。
+ *
+ * `url` 是 OSS 的**公共读**地址，后端只发给该工单的发布者或接单人。理论上它可能为
+ * 空（服务端没配 OSS 的 AK 时拼不出来），所以渲染下载链接前要判一下。
+ */
+export interface DeliveryFile {
+  id: number
+  /** 上传时用户机器上的文件名，下载时显示这个 */
+  originalName: string
+  fileSize?: number
+  mimeType?: string
+  url?: string
+  uploadedBy?: number
+  createdAt?: string
+}
+
 // ============================================================ 项目域
 // 字段对齐 ticket-service 的 Project / ProjectModule / ProjectTask /
 // Milestone / ProjectDiscussion 实体。BaseEntity 提供 id 与三个时间戳。
@@ -505,6 +561,13 @@ export interface MembershipPlanDTO {
   price: number
   credits: number
   days: number
+  /**
+   * 本档位发布的工单是否在大厅优先曝光（目前只有 Max 为 true）。
+   *
+   * 后端下发而不是前端按档位名写死 —— 这是**权益**不是文案：前端写 `planCode === 'MAX'`
+   * 的话，以后换哪一档带曝光就要改两个仓库（见 `MembershipPlan.hallPromoted()`）。
+   */
+  hallPromoted?: boolean
   desc?: string
 }
 

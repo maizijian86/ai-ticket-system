@@ -1,62 +1,80 @@
 <template>
-  <div class="ticket-detail">
-    <div class="page-header">
-      <el-button text @click="router.push('/tickets')" class="btn-glass">
-        <el-icon><ArrowLeft /></el-icon> 返回
-      </el-button>
-    </div>
-
+  <div class="ds-page detail">
     <div v-loading="loading">
       <template v-if="ticket">
-        <!-- 工单头部 -->
-        <el-card class="ticket-header-card glass-card">
-          <div class="ticket-header">
-            <div class="ticket-title-row">
-              <span class="ticket-id">#{{ ticket.id }}</span>
-              <h1>{{ ticket.title }}</h1>
-            </div>
-            <div class="ticket-tags">
-              <el-tag v-if="ticket.projectType" size="small" class="glass-tag">
-                {{ ticket.projectType }}
-              </el-tag>
-              <el-tag v-if="ticket.category" :type="getCategoryType(ticket.category)" size="small" class="glass-tag">
-                {{ getCategoryLabel(ticket.category) }}
-              </el-tag>
-              <el-tag v-if="ticket.priority" size="small" :type="getPriorityType(ticket.priority)" class="glass-tag">
-                {{ ticket.priority }}
-              </el-tag>
-              <el-tag :type="getStatusType(ticket.status)" size="small" class="glass-tag">
-                {{ getStatusLabel(ticket.status) }}
-              </el-tag>
-            </div>
+        <!--
+          页头 = DESIGN.md 里那个「白底编辑体开场」。
+          工单标题动辄二十几个汉字，用 display-lg(64px) 会折成三行而且把正文顶到
+          屏外，所以走 display-md(40px)（见 main.css 里为什么补了这一档）。
+          眉标用 mono 大写，承担"这是第几号单"的编号职能 —— 编号是分类学信息，
+          不该跟标题抢字号。
+        -->
+        <header class="detail-head">
+          <button class="ds-btn ds-btn--ghost detail-back" @click="router.push('/tickets')">
+            <el-icon><ArrowLeft /></el-icon> 返回大厅
+          </button>
+
+          <span class="ds-eyebrow">TICKET #{{ ticket.id }}</span>
+          <h1 class="ds-display-md detail-title">{{ ticket.title }}</h1>
+
+          <div class="detail-chips">
+            <span v-if="ticket.projectType" class="ds-chip">{{ ticket.projectType }}</span>
+            <el-tag v-if="ticket.category" :type="getCategoryType(ticket.category)" size="small">
+              {{ getCategoryLabel(ticket.category) }}
+            </el-tag>
+            <!--
+              优先级用跟需求大厅卡片同一枚徽标（定义在 main.css），而不是 el-tag。
+              这块地方紧挨着状态标签，两者都走 el-tag 的话就是两枚一模一样的浅紫 ——
+              「P2」和「开发中」是两种完全不同维度的信息，长得一样就白标了。
+            -->
+            <span
+              v-if="ticket.priority"
+              class="priority-badge"
+              :class="`priority-${ticket.priority}`"
+            >
+              {{ ticket.priority }}
+            </span>
+            <el-tag :type="getStatusType(ticket.status)" size="small">
+              {{ getStatusLabel(ticket.status) }}
+            </el-tag>
+            <!--
+              发布者预附额度。需求大厅的卡片上已经有一条 lime 色带在讲这件事，
+              点进来之后却只在展开 AI 卡片时才提一句 —— 而它恰恰是这张单值不值得接的
+              判据之一。跟在大厅一样用 lime，让"同一件事"在两处长得一样。
+            -->
+            <span v-if="ticket.aiPrepaid" class="ds-chip ds-chip--lime">AI 额度已预附</span>
           </div>
 
-          <div class="ticket-meta">
+          <!--
+            元信息。四项一字排开，标签用 mono 小字、值用正文，中间靠发丝线分区 ——
+            比原先的四张玻璃小卡安静得多，也不会跟下面的正文抢注意力。
+          -->
+          <div class="detail-meta">
             <div class="meta-item">
-              <span class="label">发布人</span>
-              <span>{{ ticket.creatorName }}</span>
+              <span class="ds-caption meta-label">发布人</span>
+              <span class="meta-value">{{ ticket.creatorName }}</span>
             </div>
             <div class="meta-item">
-              <span class="label">接单人</span>
-              <span>{{ ticket.handlerName || '待接单' }}</span>
+              <span class="ds-caption meta-label">接单人</span>
+              <span class="meta-value">{{ ticket.handlerName || '待接单' }}</span>
             </div>
             <div class="meta-item">
-              <span class="label">预算</span>
-              <span>{{ ticket.budget ? `¥${ticket.budget}` : '面议' }}</span>
+              <span class="ds-caption meta-label">预算</span>
+              <span class="meta-value meta-value--mono">{{ ticket.budget ? `¥${ticket.budget}` : '面议' }}</span>
             </div>
             <div class="meta-item">
-              <span class="label">截止日期</span>
-              <span>{{ ticket.deadline ? formatDate(ticket.deadline) : '待定' }}</span>
+              <span class="ds-caption meta-label">截止日期</span>
+              <span class="meta-value meta-value--mono">{{ ticket.deadline ? formatDay(ticket.deadline) : '待定' }}</span>
             </div>
           </div>
 
           <!-- 技术栈 -->
-          <div v-if="ticket.techStack" class="tech-stack">
-            <span class="label">技术栈</span>
-            <div class="tech-tags">
-              <el-tag v-for="tech in ticket.techStack.split(',')" :key="tech" size="small" type="info" class="glass-tag">
+          <div v-if="ticket.techStack" class="detail-tech">
+            <span class="ds-caption meta-label">技术栈</span>
+            <div class="detail-tech__tags">
+              <span v-for="tech in ticket.techStack.split(',')" :key="tech" class="ds-chip ds-chip--mono">
                 {{ tech.trim() }}
-              </el-tag>
+              </span>
             </div>
           </div>
 
@@ -64,31 +82,32 @@
             AI 摘要。`aiContentVisible` 是"访客看不到任何 AI 生成内容"那条规则的落点：
             后端会把 aiSummary 连同工单一起返回（它属于工单字段，不单独鉴权），
             所以对访客的隐藏必须发生在这里。
+
+            落在浅紫上：这是全页唯一一块"机器产出的判断"，用颜色把它和人写的内容分开。
           -->
-          <div v-if="ticket.aiSummary && aiContentVisible" class="ai-summary glass-card-static">
-            <div class="ai-summary-header">
-              <el-icon><ChatDotRound /></el-icon>
-              <span>AI 摘要</span>
+          <div v-if="ticket.aiSummary && aiContentVisible" class="detail-ai-summary">
+            <div class="detail-ai-summary__head">
+              <el-icon size="15"><ChatDotRound /></el-icon>
+              <span class="ds-caption">AI SUMMARY</span>
             </div>
-            <div class="ai-summary-content">{{ ticket.aiSummary }}</div>
+            <p class="detail-ai-summary__text">{{ ticket.aiSummary }}</p>
           </div>
 
-          <!-- 操作按钮 -->
-          <div class="ticket-actions">
-            <!-- 接单按钮 - 只有非发布者且工单未接单时显示 -->
+          <!--
+            操作按钮。
+            **只有"推进这张单往前走"的那个动作是主色**（接单 / 去完成 / 验收），
+            它们三者互斥；进入聊天降到次要胶囊，编辑是纯文字 —— 一个视口里
+            最多两枚可见按钮，主次一眼分得开。
+          -->
+          <div class="detail-actions">
             <!--
               判定用 handlerId 而不是 acceptedBy。后者是另一条已删除的接单路径写的字段，
               与 handlerId 各写一个，于是"已接单"的工单在这里仍然显示接单按钮。
               三个条件缺一不可：没人接 + 状态为 OPEN + 我不是发布者。
             -->
-            <el-button
-              v-if="canPickup"
-              type="success"
-              @click="openPickupDialog"
-              class="btn-glass btn-glass-success"
-            >
+            <button v-if="canPickup" class="ds-btn ds-btn--primary" @click="openPickupDialog">
               <el-icon><Check /></el-icon> 接单
-            </el-button>
+            </button>
 
             <!--
               进入聊天 - 只有这一单的发布者和接单人看得到；归档后私聊已被清空，
@@ -96,43 +115,36 @@
               此前只判 ticket.handlerId（"这张单有人接了"）而不判"是不是我"，
               于是**任何登录用户**都能看到这个入口 —— 点进去才被后端 403 挡下。
             -->
-            <el-button
+            <button
               v-if="(isCreator || isHandler) && !isArchived"
-              type="primary"
+              class="ds-btn ds-btn--secondary"
               @click="router.push(`/tickets/${ticket.id}/chat`)"
-              class="btn-glass btn-glass-primary"
             >
               <el-icon><ChatDotRound /></el-icon> 进入聊天
-            </el-button>
+            </button>
 
             <!-- 去完成 - 接单人推进自己的单 -->
-            <el-button
+            <button
               v-if="isHandler && (ticket.status === 'ACCEPTED' || ticket.status === 'REJECTED')"
-              type="primary"
+              class="ds-btn ds-btn--primary"
               @click="openCompleteDialog"
-              class="btn-glass btn-glass-primary"
             >
               <el-icon><Finished /></el-icon> 去完成
-            </el-button>
+            </button>
 
             <!-- 验收 - 发布者验收待验收的交付 -->
-            <el-button
+            <button
               v-if="isCreator && ticket.status === 'PENDING_APPROVAL'"
-              type="success"
+              class="ds-btn ds-btn--primary"
               @click="openReviewDialog"
-              class="btn-glass btn-glass-success"
             >
               <el-icon><CircleCheck /></el-icon> 验收
-            </el-button>
+            </button>
 
             <!-- 编辑 - 只有发布者本人、且工单未完结 -->
-            <el-button
-              v-if="canEdit"
-              @click="router.push(`/tickets/${ticket.id}/edit`)"
-              class="btn-glass"
-            >
+            <button v-if="canEdit" class="ds-btn ds-btn--ghost" @click="router.push(`/tickets/${ticket.id}/edit`)">
               编辑
-            </el-button>
+            </button>
 
             <!--
               此处原有「AI开发分析」按钮（v-if="status === 'OPEN'"）已删除 ——
@@ -142,264 +154,269 @@
               在开发中就永远生不出来。
             -->
           </div>
-        </el-card>
+        </header>
 
-        <!-- 交付凭证 - 接单者提交后显示 -->
-        <el-card v-if="ticket.completionProof" class="ticket-content-card glass-card">
-          <div class="ticket-content">
-            <h3>交付凭证</h3>
-            <div class="content-text">
-              <!--
-                只做纯文本插值，绝不 v-html：这是接单者填的自由文本、会被存库，
-                用 v-html 渲染等于把存储型 XSS 直接送到发布者浏览器。
-                渲染成链接时也只认 http(s)，挡掉 javascript: 之类的伪协议。
-              -->
-              <a
-                v-if="/^https?:\/\/\S+/i.test(ticket.completionProof.trim())"
-                :href="ticket.completionProof"
-                target="_blank"
-                rel="noopener noreferrer"
-                class="proof-link"
-              >{{ ticket.completionProof }}</a>
-              <span v-else>{{ ticket.completionProof }}</span>
-            </div>
+        <!-- 交付凭证 - 接单者提交后显示。浅绿：这是全篇唯一的好消息块 -->
+        <section v-if="ticket.completionProof" class="content-card content-card--mint">
+          <span class="ds-caption content-card__eyebrow">DELIVERY PROOF</span>
+          <h3 class="ds-headline content-card__title">交付凭证</h3>
+          <div class="content-text">
+            <!--
+              只做纯文本插值，绝不 v-html：这是接单者填的自由文本、会被存库，
+              用 v-html 渲染等于把存储型 XSS 直接送到发布者浏览器。
+              渲染成链接时也只认 http(s)，挡掉 javascript: 之类的伪协议。
+            -->
+            <a
+              v-if="/^https?:\/\/\S+/i.test(ticket.completionProof.trim())"
+              :href="ticket.completionProof"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="proof-link"
+            >{{ ticket.completionProof }}</a>
+            <span v-else>{{ ticket.completionProof }}</span>
           </div>
-        </el-card>
+        </section>
 
-        <!-- 驳回理由 - 让接单者知道要改什么 -->
-        <el-card v-if="ticket.status === 'REJECTED' && ticket.rejectionReason" class="ticket-content-card glass-card">
-          <div class="ticket-content">
-            <h3>驳回理由</h3>
-            <div class="content-text">{{ ticket.rejectionReason }}</div>
-          </div>
-        </el-card>
+        <!-- 驳回理由 - 让接单者知道要改什么。浅粉：一件需要他立刻处理的事 -->
+        <section v-if="ticket.status === 'REJECTED' && ticket.rejectionReason" class="content-card content-card--pink">
+          <span class="ds-caption content-card__eyebrow">REJECTION REASON</span>
+          <h3 class="ds-headline content-card__title">驳回理由</h3>
+          <div class="content-text">{{ ticket.rejectionReason }}</div>
+        </section>
 
         <!-- 项目详细信息 -->
-        <el-card v-if="ticket.detailedRequirements" class="ticket-content-card glass-card">
-          <div class="ticket-content">
-            <h3>详细需求</h3>
-            <div class="content-text">{{ ticket.detailedRequirements }}</div>
-          </div>
-        </el-card>
+        <section v-if="ticket.detailedRequirements" class="content-card">
+          <span class="ds-caption content-card__eyebrow">REQUIREMENTS</span>
+          <h3 class="ds-headline content-card__title">详细需求</h3>
+          <div class="content-text">{{ ticket.detailedRequirements }}</div>
+        </section>
 
         <!-- 项目描述 -->
-        <el-card class="ticket-content-card glass-card">
-          <div class="ticket-content">
-            <h3>项目描述</h3>
-            <div class="content-text">{{ ticket.content }}</div>
-          </div>
-        </el-card>
+        <section class="content-card">
+          <span class="ds-caption content-card__eyebrow">DESCRIPTION</span>
+          <h3 class="ds-headline content-card__title">项目描述</h3>
+          <div class="content-text">{{ ticket.content }}</div>
+        </section>
 
         <!--
-          AI分析结果 - 默认折叠。
-          进详情页时这一大块会把整页顶下去，而它多数时候是空的（等生成），
+          AI 开发助手 —— 全页的叙事中心，所以给它一整块 lime 色块（DESIGN.md 的
+          color-block-section：签约系统 + FAQ + 联系表单都用它，是这个系统里
+          最"干活"的一块颜色）。
+
+          色块内部的产品面板按文档的做法贴一张白色子面板上去：色块是海报，
+          内容是贴上去的切片。对话气泡、选项卡、骨架条都在这张白panel 上，
+          阅读对比度和整站其他卡片一致。
+
+          默认折叠。进详情页时这一大块会把整页顶下去，而它多数时候是空的（等生成），
           所以默认收起，点标题栏展开。折叠状态不持久化 —— 需求就是"进来默认折叠"，
           存一个 true 会让"默认"变成谎话。
         -->
-        <el-card class="ai-analysis-card glass-card" :class="{ 'is-collapsed': !aiExpanded }">
-          <template #header>
-            <div class="ai-analysis-header" @click="aiExpanded = !aiExpanded">
-              <el-icon><MagicStick /></el-icon>
-              <span>AI 开发助手</span>
-              <!--
-                额度徽标。只在**我是这张工单的接单人**时显示 —— 后端对非接单人
-                也返回 balance: 0，把它显示出来只会让人以为"我的额度是 0"。
-              -->
-              <span v-if="quota?.isHandler" class="quota-badge" :title="quotaTitle">
-                <el-icon size="13"><Coin /></el-icon>
-                剩余 {{ quota.balance }} 次
-              </span>
-              <el-icon class="ai-toggle-icon">
-                <ArrowRight v-if="!aiExpanded" />
-                <ArrowDown v-else />
-              </el-icon>
-              <!--
-                @click.stop 是必须的：容器整体可点，不 stop 的话点「下载PRD」
-                会顺手把卡片折叠起来，用户看到的是"点了下载，面板自己动了"。
-              -->
-              <el-button
-                size="small"
-                type="primary"
-                @click.stop="handleDownloadPrd"
-                :loading="prdLoading"
-                :disabled="prdButtonDisabled"
-                class="download-prd-btn"
-              >
-                <el-icon v-if="!prdLoading"><Download /></el-icon>
-                {{ ticket.aiPrd ? '下载PRD' : '生成并下载PRD' }}
-              </el-button>
+        <section class="ds-block ds-block--lime ai-block" :class="{ 'is-collapsed': !aiExpanded }">
+          <div class="ai-block__head" @click="aiExpanded = !aiExpanded">
+            <div class="ai-block__headings">
+              <span class="ds-caption">AI COPILOT</span>
+              <h2 class="ds-headline ai-block__title">AI 开发助手</h2>
             </div>
-          </template>
+
+            <!--
+              额度徽标。只在**我是这张工单的接单人**时显示 —— 后端对非接单人
+              也返回 balance: 0，把它显示出来只会让人以为"我的额度是 0"。
+            -->
+            <span v-if="quota?.isHandler" class="ai-block__quota" :title="quotaTitle">
+              <el-icon size="12"><Coin /></el-icon>
+              剩余 {{ quota.balance }} 次
+            </span>
+
+            <el-icon class="ai-block__toggle">
+              <ArrowRight v-if="!aiExpanded" />
+              <ArrowDown v-else />
+            </el-icon>
+
+            <!--
+              @click.stop 是必须的：容器整体可点，不 stop 的话点「下载PRD」
+              会顺手把卡片折叠起来，用户看到的是"点了下载，面板自己动了"。
+            -->
+            <el-button
+              size="small"
+              type="primary"
+              @click.stop="handleDownloadPrd"
+              :loading="prdLoading"
+              :disabled="prdButtonDisabled"
+              class="ai-block__prd"
+            >
+              <el-icon v-if="!prdLoading"><Download /></el-icon>
+              {{ ticket.aiPrd ? '下载PRD' : '生成并下载PRD' }}
+            </el-button>
+          </div>
 
           <!--
             用 v-if 而不是 v-show：el-tabs 的 TabNav 在 onMounted 里按 offsetWidth
             算活动下划线位置，父级 display:none 时量到 0 —— 展开后下划线会缩成 0
             宽贴在左边，要等切 tab 才自愈。v-if 在展开时于可见状态下重新挂载。
           -->
-          <el-tabs v-if="aiExpanded" v-model="activeAiTab" type="border-card">
-            <!--
-              AI 对话排在第一个 tab。
-              它是这三个功能里唯一"解锁后可以反复用"的，也是最常用的入口 ——
-              排在第三个意味着每次都要先点开卡片再切一次 tab。
-            -->
-            <el-tab-pane label="AI对话" name="chat">
-              <div class="ai-chat-container">
-                <!-- 状态横幅。只在用得着解释的时候出现：
-                     未解锁（说明第一次发送要花钱）或额度不足（给出会员预期）。 -->
-                <div v-if="chatBanner" class="chat-banner" :class="chatBanner.type">
-                  <el-icon size="14"><component :is="chatBanner.icon" /></el-icon>
-                  <span>{{ chatBanner.text }}</span>
-                  <el-button
-                    v-if="chatBanner.type === 'no-credit'"
-                    link
-                    type="primary"
-                    @click="goMembership"
-                  >
-                    了解会员
-                  </el-button>
-                </div>
-
-                <AiLockedHint
-                  v-if="chatLocked"
-                  :title="chatLocked.title"
-                  :detail="chatLocked.detail"
-                  :action-text="chatLocked.actionText"
-                  @action="authStore.openAuthCard('login')"
-                />
-
-                <template v-else>
-                  <div class="ai-chat-messages" ref="aiChatMessagesRef">
-                    <div v-for="(msg, index) in aiChatMessages" :key="index" :class="['ai-chat-message', msg.role]">
-                      <div class="message-avatar">
-                        <el-icon v-if="msg.role === 'user'"><User /></el-icon>
-                        <el-icon v-else><MagicStick /></el-icon>
-                      </div>
-                      <div class="message-content">{{ msg.content }}</div>
-                    </div>
-                    <!--
-                      等待回复时的骨架条。模型的响应以十秒计，没有它用户分不清
-                      "在等"和"没反应"—— 而且这条气泡占着位置，回复到达时是替换而不是
-                      凭空多出一条，视觉上不跳。
-                    -->
-                    <div
-                      v-if="aiChatLoading"
-                      class="ai-chat-message assistant shimmer-message"
-                      role="status"
-                      aria-label="AI 正在回复"
+          <div v-if="aiExpanded" class="ds-block-panel ai-block__panel">
+            <el-tabs v-model="activeAiTab" type="border-card">
+              <!--
+                AI 对话排在第一个 tab。
+                它是这三个功能里唯一"解锁后可以反复用"的，也是最常用的入口 ——
+                排在第三个意味着每次都要先点开卡片再切一次 tab。
+              -->
+              <el-tab-pane label="AI对话" name="chat">
+                <div class="ai-chat-container">
+                  <!-- 状态横幅。只在用得着解释的时候出现：
+                       未解锁（说明第一次发送要花钱）或额度不足（给出会员预期）。 -->
+                  <div v-if="chatBanner" class="chat-banner" :class="chatBanner.type">
+                    <el-icon size="14"><component :is="chatBanner.icon" /></el-icon>
+                    <span>{{ chatBanner.text }}</span>
+                    <button
+                      v-if="chatBanner.type === 'no-credit'"
+                      class="ds-btn ds-btn--ghost ds-btn--sm"
+                      @click="goMembership"
                     >
-                      <div class="message-avatar">
-                        <el-icon><MagicStick /></el-icon>
-                      </div>
-                      <div class="message-content shimmer-bubble">
-                        <span class="shimmer-line" style="width: 86%"></span>
-                        <span class="shimmer-line" style="width: 64%"></span>
-                        <span class="shimmer-line" style="width: 42%"></span>
-                      </div>
-                    </div>
-                    <div v-if="aiChatMessages.length === 0" class="empty-chat">
-                      <p>我是AI开发助手，可以帮你解答项目开发相关的问题</p>
-                      <p>例如：这个项目应该怎么设计数据库？</p>
-                    </div>
+                      了解会员
+                    </button>
                   </div>
-                  <div class="ai-chat-input">
-                    <el-input
-                      v-model="aiChatInput"
-                      placeholder="输入你的问题... (Enter发送)"
-                      @keyup.enter="handleAiChat"
-                      :disabled="chatInputDisabled"
-                    />
-                    <el-button
-                      type="primary"
-                      :loading="aiChatLoading"
-                      @click="handleAiChat"
-                      :disabled="!aiChatInput.trim() || aiChatLoading || chatInputDisabled"
+
+                  <AiLockedHint
+                    v-if="chatLocked"
+                    :title="chatLocked.title"
+                    :detail="chatLocked.detail"
+                    :action-text="chatLocked.actionText"
+                    @action="authStore.openAuthCard('login')"
+                  />
+
+                  <template v-else>
+                    <div class="ai-chat-messages" ref="aiChatMessagesRef">
+                      <div v-for="(msg, index) in aiChatMessages" :key="index" :class="['ai-chat-message', msg.role]">
+                        <div class="message-avatar">
+                          <el-icon v-if="msg.role === 'user'"><User /></el-icon>
+                          <el-icon v-else><MagicStick /></el-icon>
+                        </div>
+                        <div class="message-content">{{ msg.content }}</div>
+                      </div>
+                      <!--
+                        等待回复时的骨架条。模型的响应以十秒计，没有它用户分不清
+                        "在等"和"没反应"—— 而且这条气泡占着位置，回复到达时是替换而不是
+                        凭空多出一条，视觉上不跳。
+                      -->
+                      <div
+                        v-if="aiChatLoading"
+                        class="ai-chat-message assistant shimmer-message"
+                        role="status"
+                        aria-label="AI 正在回复"
+                      >
+                        <div class="message-avatar">
+                          <el-icon><MagicStick /></el-icon>
+                        </div>
+                        <div class="message-content shimmer-bubble">
+                          <span class="shimmer-line" style="width: 86%"></span>
+                          <span class="shimmer-line" style="width: 64%"></span>
+                          <span class="shimmer-line" style="width: 42%"></span>
+                        </div>
+                      </div>
+                      <div v-if="aiChatMessages.length === 0" class="empty-chat">
+                        <span class="ds-caption empty-chat__eyebrow">EMPTY</span>
+                        <p>我是AI开发助手，可以帮你解答项目开发相关的问题</p>
+                        <p class="empty-chat__eg">例如：这个项目应该怎么设计数据库？</p>
+                      </div>
+                    </div>
+                    <div class="ai-chat-input">
+                      <el-input
+                        v-model="aiChatInput"
+                        placeholder="输入你的问题... (Enter发送)"
+                        @keyup.enter="handleAiChat"
+                        :disabled="chatInputDisabled"
+                      />
+                      <el-button
+                        type="primary"
+                        :loading="aiChatLoading"
+                        @click="handleAiChat"
+                        :disabled="!aiChatInput.trim() || aiChatLoading || chatInputDisabled"
+                      >
+                        {{ chatUnlocked ? '发送' : '发送并解锁' }}
+                      </el-button>
+                    </div>
+                  </template>
+                </div>
+              </el-tab-pane>
+
+              <el-tab-pane label="技术建议" name="tech">
+                <!--
+                  `&& aiContentVisible` 不能省：内容存在不等于**该给这个人看**。
+                  后端把 AI 内容作为工单字段一起返回（对访客也一样），所以"访客看不到
+                  AI 内容"这条规则只能落在渲染条件上。
+                -->
+                <div v-if="ticket.aiTechSuggestion && aiContentVisible" class="ai-content markdown-content">{{ ticket.aiTechSuggestion }}</div>
+                <template v-else>
+                  <AiLockedHint
+                    v-if="analysisMask"
+                    :title="analysisMask.title"
+                    :detail="analysisMask.detail"
+                    :action-text="analysisMask.actionText"
+                    @action="authStore.openAuthCard('login')"
+                  />
+                  <div v-else class="empty-content">
+                    <!--
+                      走到这里 = 还没内容。两种开销状态说法不同：
+                        · pairPaid：同组的另一半（很可能是 AI 对话）已经把这 1 次花掉了，
+                          这次生成免费 —— 所以按钮**照旧可点**，也不需要余额。
+                        · 否则：这次要花 1 次，余额不够就不给按。
+                    -->
+                    <p class="credit-hint">{{ pairPaid ? pairPaidHint : creditHint }}</p>
+                    <button
+                      class="ds-btn ds-btn--primary"
+                      :disabled="analyzing || analysisState === 'IN_PROGRESS' || (!pairPaid && !canAfford)"
+                      @click="handleAiAnalysis"
                     >
-                      {{ chatUnlocked ? '发送' : '发送并解锁' }}
-                    </el-button>
+                      <el-icon v-if="!analyzing"><MagicStick /></el-icon>
+                      {{ analyzing ? '生成中…' : '点击生成技术建议' }}
+                    </button>
                   </div>
                 </template>
-              </div>
-            </el-tab-pane>
+              </el-tab-pane>
 
-            <el-tab-pane label="技术建议" name="tech">
-              <!--
-                `&& aiContentVisible` 不能省：内容存在不等于**该给这个人看**。
-                后端把 AI 内容作为工单字段一起返回（对访客也一样），所以"访客看不到
-                AI 内容"这条规则只能落在渲染条件上。
-              -->
-              <div v-if="ticket.aiTechSuggestion && aiContentVisible" class="ai-content markdown-content">{{ ticket.aiTechSuggestion }}</div>
-              <template v-else>
-                <AiLockedHint
-                  v-if="analysisMask"
-                  :title="analysisMask.title"
-                  :detail="analysisMask.detail"
-                  :action-text="analysisMask.actionText"
-                  @action="authStore.openAuthCard('login')"
-                />
-                <div v-else class="empty-content">
-                  <!--
-                    走到这里 = 还没内容。两种开销状态说法不同：
-                      · pairPaid：同组的另一半（很可能是 AI 对话）已经把这 1 次花掉了，
-                        这次生成免费 —— 所以按钮**照旧可点**，也不需要余额。
-                      · 否则：这次要花 1 次，余额不够就不给按。
-                  -->
-                  <p class="credit-hint">{{ pairPaid ? pairPaidHint : creditHint }}</p>
-                  <el-button
-                    type="primary"
-                    :loading="analyzing"
-                    :disabled="analyzing || analysisState === 'IN_PROGRESS' || (!pairPaid && !canAfford)"
-                    @click="handleAiAnalysis"
-                    class="btn-glass"
-                  >
-                    <el-icon v-if="!analyzing"><MagicStick /></el-icon>
-                    点击生成技术建议
-                  </el-button>
-                </div>
-              </template>
-            </el-tab-pane>
-
-            <el-tab-pane label="任务拆解" name="tasks">
-              <div v-if="ticket.aiTaskBreakdown && aiContentVisible" class="ai-content markdown-content">{{ ticket.aiTaskBreakdown }}</div>
-              <template v-else>
-                <AiLockedHint
-                  v-if="analysisMask"
-                  :title="analysisMask.title"
-                  :detail="analysisMask.detail"
-                  :action-text="analysisMask.actionText"
-                  @action="authStore.openAuthCard('login')"
-                />
-                <div v-else class="empty-content">
-                  <!--
-                    走到这里 = 还没内容。两种开销状态说法不同：
-                      · pairPaid：同组的另一半（很可能是 AI 对话）已经把这 1 次花掉了，
-                        这次生成免费 —— 所以按钮**照旧可点**，也不需要余额。
-                      · 否则：这次要花 1 次，余额不够就不给按。
-                  -->
-                  <p class="credit-hint">{{ pairPaid ? pairPaidHint : creditHint }}</p>
-                  <el-button
-                    type="primary"
-                    :loading="analyzing"
-                    :disabled="analyzing || analysisState === 'IN_PROGRESS' || (!pairPaid && !canAfford)"
-                    @click="handleAiAnalysis"
-                    class="btn-glass"
-                  >
-                    <el-icon v-if="!analyzing"><MagicStick /></el-icon>
-                    点击生成任务拆解
-                  </el-button>
-                </div>
-              </template>
-            </el-tab-pane>
-          </el-tabs>
-        </el-card>
+              <el-tab-pane label="任务拆解" name="tasks">
+                <div v-if="ticket.aiTaskBreakdown && aiContentVisible" class="ai-content markdown-content">{{ ticket.aiTaskBreakdown }}</div>
+                <template v-else>
+                  <AiLockedHint
+                    v-if="analysisMask"
+                    :title="analysisMask.title"
+                    :detail="analysisMask.detail"
+                    :action-text="analysisMask.actionText"
+                    @action="authStore.openAuthCard('login')"
+                  />
+                  <div v-else class="empty-content">
+                    <!--
+                      走到这里 = 还没内容。两种开销状态说法不同：
+                        · pairPaid：同组的另一半（很可能是 AI 对话）已经把这 1 次花掉了，
+                          这次生成免费 —— 所以按钮**照旧可点**，也不需要余额。
+                        · 否则：这次要花 1 次，余额不够就不给按。
+                    -->
+                    <p class="credit-hint">{{ pairPaid ? pairPaidHint : creditHint }}</p>
+                    <button
+                      class="ds-btn ds-btn--primary"
+                      :disabled="analyzing || analysisState === 'IN_PROGRESS' || (!pairPaid && !canAfford)"
+                      @click="handleAiAnalysis"
+                    >
+                      <el-icon v-if="!analyzing"><MagicStick /></el-icon>
+                      {{ analyzing ? '生成中…' : '点击生成任务拆解' }}
+                    </button>
+                  </div>
+                </template>
+              </el-tab-pane>
+            </el-tabs>
+          </div>
+        </section>
 
         <!-- 对话记录 -->
-        <el-card class="comments-card glass-card">
-          <template #header>
-            <div class="comments-header">
-              <span>对话记录</span>
-              <span class="comment-count">{{ comments.length }} 条</span>
+        <section class="comment-card">
+          <header class="comment-card__head">
+            <div>
+              <span class="ds-caption">DISCUSSION</span>
+              <h2 class="ds-headline comment-card__title">对话记录</h2>
             </div>
-          </template>
+            <span class="ds-chip ds-chip--mono">{{ comments.length }} 条</span>
+          </header>
 
           <div class="comments-list">
             <div
@@ -414,8 +431,8 @@
               <div class="comment-body">
                 <div class="comment-meta">
                   <span class="comment-author">{{ comment.userName }}</span>
-                  <el-tag v-if="comment.isAiSuggested" size="small" type="warning" class="glass-tag">AI 建议</el-tag>
-                  <el-tag v-if="comment.isInternal" size="small" class="glass-tag">内部</el-tag>
+                  <el-tag v-if="comment.isAiSuggested" size="small" type="warning">AI 建议</el-tag>
+                  <el-tag v-if="comment.isInternal" size="small">内部</el-tag>
                   <span class="comment-time">{{ formatDate(comment.createdAt) }}</span>
                 </div>
                 <div class="comment-content">{{ comment.content }}</div>
@@ -423,7 +440,8 @@
             </div>
 
             <div v-if="comments.length === 0" class="empty-comments">
-              暂无对话记录
+              <span class="ds-caption">NO COMMENTS</span>
+              <p>暂无对话记录</p>
             </div>
           </div>
 
@@ -432,7 +450,7 @@
             输入框 —— 留言本来就要身份（后端从网关注入的 X-User-Id 取作者），
             让访客先写再被拒是最浪费他时间的一种设计。
           -->
-          <div class="comment-input glass-card-static">
+          <div class="comment-input">
             <template v-if="authStore.token">
               <el-input
                 v-model="newComment"
@@ -440,23 +458,22 @@
                 :rows="3"
                 placeholder="输入回复内容..."
                 @keydown.enter.ctrl="handleAddComment"
-                class="glass-input"
               />
               <div class="comment-input-actions">
-                <el-checkbox v-model="isInternal" class="glass-checkbox">内部留言</el-checkbox>
-                <el-button type="primary" :loading="submitting" @click="handleAddComment" class="btn-glass btn-glass-primary">
-                  发送
-                </el-button>
+                <el-checkbox v-model="isInternal">内部留言</el-checkbox>
+                <button class="ds-btn ds-btn--primary" :disabled="submitting" @click="handleAddComment">
+                  {{ submitting ? '发送中…' : '发送' }}
+                </button>
               </div>
             </template>
             <div v-else class="comment-login-hint">
               <span>登录后可以参与讨论</span>
-              <el-button type="primary" size="small" class="btn-glass btn-glass-primary" @click="authStore.openAuthCard('login')">
+              <button class="ds-btn ds-btn--primary ds-btn--sm" @click="authStore.openAuthCard('login')">
                 登录 / 注册
-              </el-button>
+              </button>
             </div>
           </div>
-        </el-card>
+        </section>
       </template>
     </div>
 
@@ -1041,14 +1058,14 @@ function formatDate(date: string) {
   return new Date(date).toLocaleString('zh-CN')
 }
 
-function getPriorityType(priority: string) {
-  const map: Record<string, string> = {
-    P0: 'danger',
-    P1: 'warning',
-    P2: 'primary',
-    P3: 'info'
-  }
-  return map[priority] || 'info'
+/**
+ * 日期（不含时分秒）。截止日期是"哪一天"这件事，把 00:00:00 印在页头上
+ * 只会让人多读三个没意义的字符 —— 而这一栏偏偏是全页唯一一处纯日期字段。
+ */
+function formatDay(date: string) {
+  const d = new Date(date)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}/${pad(d.getMonth() + 1)}/${pad(d.getDate())}`
 }
 
 onMounted(() => {
@@ -1057,483 +1074,638 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.page-header {
-  margin-bottom: 20px;
+/* ============================================================
+   页头
+   ============================================================ */
+/* 页头自带一条发丝线收尾，下面的卡片各自又带 margin-top。两者相加原来在
+   正文开始前堆出近 200px 的空白 —— 页头这里收到 48px，留白交给卡片的间距。 */
+.detail-head {
+  padding-bottom: var(--ds-s-lg);
+  border-bottom: 1px solid var(--ds-hairline-soft);
 }
 
-.proof-link {
-  color: var(--accent-info);
-  text-decoration: none;
-  word-break: break-all;
+.detail-back {
+  margin-bottom: var(--ds-s-lg);
+  margin-left: -12px; /* 让图标与下面的标题左缘对齐，而不是被内边距推出去 */
 }
 
-.proof-link:hover {
-  text-decoration: underline;
+.detail-title {
+  max-width: 22ch;
+  margin: var(--ds-s-md) 0 var(--ds-s-md);
 }
 
-/* 此处原有 .summary / .summary-row / .summary-label / .summary-value /
-   .archive-note / .pickup-confirm 六条 —— 只服务于已抽走的接单弹窗。
-   那套样式在两个交付弹窗里各有一份、这里曾是第三份，跟着弹窗一起删掉。 */
-
-.ticket-header-card {
-  margin-bottom: 20px;
-}
-
-.ticket-header {
-  margin-bottom: 20px;
-}
-
-.ticket-title-row {
+.detail-chips {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 16px;
-  margin-bottom: 16px;
+  gap: 6px;
+  margin-bottom: var(--ds-s-xl);
 }
 
-.ticket-id {
-  font-size: 14px;
-  color: var(--text-tertiary);
-  font-weight: 500;
-}
-
-.ticket-title {
-  font-size: 24px;
-  font-weight: 700;
-  color: var(--text-primary);
-}
-
-.ticket-tags {
-  display: flex;
-  gap: 10px;
-}
-
-.ticket-meta {
+/* 元信息：四栏，每栏上面一行 mono 小标签。发丝线做分栏，不用卡片 ——
+   这四样是"这一单的静态事实"，不该跟下面的正文平起平坐。 */
+.detail-meta {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 20px;
-  padding: 20px 0;
-  border-top: 1px solid var(--glass-border);
-  border-bottom: 1px solid var(--glass-border);
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  border-top: 1px solid var(--ds-hairline-soft);
+  border-bottom: 1px solid var(--ds-hairline-soft);
 }
 
 .meta-item {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  padding: var(--ds-s-md) var(--ds-s-md) var(--ds-s-md) 0;
+  border-right: 1px solid var(--ds-hairline-soft);
 }
 
-.meta-item .label {
-  font-size: 12px;
-  color: var(--text-tertiary);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
+.meta-item:last-child {
+  border-right: none;
 }
 
-.meta-item span:last-child {
-  font-size: 14px;
-  color: var(--text-primary);
+.meta-label {
+  color: var(--ds-ink);
+  opacity: 0.5;
+}
+
+.meta-value {
+  font-size: var(--ds-fs-body-sm);
+  font-weight: var(--ds-fw-medium);
+  color: var(--ds-ink);
+}
+
+.meta-value--mono {
+  font-family: var(--ds-font-mono);
   font-weight: 500;
 }
 
-.tech-stack {
-  margin-top: 16px;
-  padding-top: 16px;
-  border-top: 1px solid var(--glass-border);
-}
-
-.tech-stack .label {
-  font-size: 12px;
-  color: var(--text-tertiary);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  margin-bottom: 8px;
-  display: block;
-}
-
-.tech-tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.ai-summary {
-  margin-top: 20px;
-  padding: 16px;
-  border-radius: var(--radius-md) !important;
-}
-
-.ai-summary-header {
+.detail-tech {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-weight: 600;
-  margin-bottom: 12px;
-  color: var(--accent-info);
+  gap: var(--ds-s-md);
+  padding: var(--ds-s-md) 0 0;
 }
 
-.ai-summary-content {
-  font-size: 14px;
-  line-height: 1.7;
-  color: var(--text-secondary);
-}
-
-.ticket-actions {
-  margin-top: 20px;
+.detail-tech__tags {
   display: flex;
-  gap: 12px;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 
-.ticket-content-card {
-  margin-bottom: 20px;
+/* AI 摘要：浅紫。整页唯一一块"机器写的判断"，用颜色跟人写的内容分开。 */
+.detail-ai-summary {
+  margin-top: var(--ds-s-lg);
+  background: var(--ds-block-lilac);
+  border-radius: var(--ds-r-md);
+  padding: var(--ds-s-md) var(--ds-s-lg);
 }
 
-.ticket-content h3 {
-  font-size: 12px;
-  color: var(--text-tertiary);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  margin-bottom: 16px;
+.detail-ai-summary__head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+  color: var(--ds-ink);
+}
+
+.detail-ai-summary__text {
+  font-size: var(--ds-fs-body-sm);
+  font-weight: var(--ds-fw-light);
+  line-height: 1.55;
+  color: var(--ds-ink);
+}
+
+/* 间距挂在这一行的**子元素**上，不是容器上。
+   五颗按钮各有各的 v-if，访客进来看这张单时它们一颗都不出现 —— 容器自己带
+   margin-top 的话，那 64px 会留在页头和正文之间，变成一条没有任何东西解释的空白。
+   容器空着就是 0 高、0 边距。 */
+.detail-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ds-s-xs);
+}
+
+.detail-actions > * {
+  margin-top: var(--ds-s-xl);
+}
+
+/* ============================================================
+   正文卡片
+   ============================================================ */
+/* 事实卡片之间用 64px，AI 块与对话记录那两"节"之间用 96px（见各自的规则）。
+   详情的卡片是连着读的（需求 → 描述），节与节之间才需要换气 —— 全长同一档间距
+   会让整页变成一条匀速的滚轴。 */
+.content-card {
+  margin-top: var(--ds-s-xl);
+  background: var(--ds-canvas);
+  border: 1px solid var(--ds-hairline);
+  border-radius: var(--ds-r-lg);
+  padding: var(--ds-s-xl);
+}
+
+/* 交付凭证：浅绿。全篇唯一的好消息块 */
+.content-card--mint {
+  background: var(--ds-block-mint);
+  border-color: transparent;
+}
+
+/* 驳回理由：浅粉。一件需要接单者立刻处理的事 */
+.content-card--pink {
+  background: var(--ds-block-pink);
+  border-color: transparent;
+}
+
+.content-card__eyebrow {
+  display: block;
+  color: var(--ds-ink);
+  opacity: 0.5;
+  margin-bottom: var(--ds-s-xs);
+}
+
+.content-card__title {
+  margin-bottom: var(--ds-s-md);
 }
 
 .content-text {
-  font-size: 14px;
-  line-height: 1.8;
+  font-size: var(--ds-fs-body);
+  font-weight: var(--ds-fw-light);
+  line-height: 1.65;
+  letter-spacing: -0.1px;
+  color: var(--ds-ink);
   white-space: pre-wrap;
-  color: var(--text-secondary);
+  word-break: break-word;
+  max-width: 78ch;
 }
 
-.ai-analysis-card {
-  margin-bottom: 20px;
+.proof-link {
+  font-weight: var(--ds-fw-medium);
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 
-.ai-analysis-header {
+/* ============================================================
+   AI 开发助手：一整块 lime
+   ============================================================ */
+.ai-block {
+  margin-top: var(--ds-s-xxl);
+}
+
+.ai-block__head {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-weight: 600;
-  color: var(--accent-warning);
-  /* 整个标题栏是折叠开关 */
+  gap: var(--ds-s-md);
   cursor: pointer;
-  user-select: none;
+  flex-wrap: wrap;
 }
 
-.ai-toggle-icon {
-  font-size: 14px;
-  color: var(--text-tertiary);
+.ai-block__headings {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-right: auto;
 }
 
-/* 剩余额度徽标。只在我是这张工单的接单人时出现（后端对非接单人返回 0）。 */
-.quota-badge {
+.ai-block__title {
+  color: var(--ds-ink);
+}
+
+.ai-block__quota {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  margin-left: 6px;
-  padding: 3px 10px;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--accent-warning);
-  background: rgba(255, 159, 10, 0.14);
-  border: 1px solid rgba(255, 159, 10, 0.32);
-  border-radius: 999px;
-  cursor: help;
+  gap: 5px;
+  font-size: 13px;
+  font-weight: var(--ds-fw-medium);
+  background: var(--ds-canvas);
+  color: var(--ds-ink);
+  border-radius: var(--ds-r-pill);
+  padding: 4px 12px;
 }
 
-/* 折叠时把 body 一起收掉：只用 v-if 拿掉 el-tabs 的话，空 body 的默认
-   padding 会在标题下面留一条空白。 */
-.ai-analysis-card.is-collapsed :deep(.el-card__body) {
-  display: none;
+.ai-block__toggle {
+  color: var(--ds-ink);
+  font-size: 18px;
 }
 
-.download-prd-btn {
-  margin-left: auto;
+/* 下载 PRD：白底黑字压在 lime 上 —— 色块里再放一枚黑按钮会让整块变吵，
+   而且它本来也不是这一页的主 CTA（主 CTA 在页头的操作行里）。 */
+.ai-block__prd {
+  background: var(--ds-canvas) !important;
+  border-color: var(--ds-canvas) !important;
+  color: var(--ds-ink) !important;
 }
 
-/* AI聊天样式 */
+.ai-block__prd:hover:not(.is-disabled) {
+  background: var(--ds-surface-soft) !important;
+  border-color: var(--ds-ink) !important;
+}
+
+.ai-block__panel {
+  margin-top: var(--ds-s-lg);
+}
+
+/* ============================================================
+   AI 对话
+   ============================================================ */
 .ai-chat-container {
   display: flex;
   flex-direction: column;
-  height: 400px;
+  gap: var(--ds-s-md);
 }
 
-/*
- * 聊天框顶部的状态横幅（未解锁 / 已解锁 / 额度不足）。
- * 只在需要解释的时候渲染，所以不给它留常驻高度。
- */
+/* 状态横幅：三种状态三种色，全部黑字。
+   info → 浅奶油（一条中性说明）、no-credit → 浅粉（有事要你处理）、
+   unlocked → 浅绿（已经通过了的关卡）。 */
 .chat-banner {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-bottom: 12px;
-  padding: 9px 12px;
-  font-size: 13px;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--glass-border);
-  background: var(--glass-bg);
-  color: var(--text-secondary);
+  gap: var(--ds-s-xs);
+  border-radius: var(--ds-r-md);
+  padding: 10px 14px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--ds-ink);
+}
+
+.chat-banner span {
+  flex: 1;
 }
 
 .chat-banner.info {
-  color: var(--accent-info);
-  border-color: rgba(100, 210, 255, 0.32);
-  background: rgba(100, 210, 255, 0.1);
+  background: var(--ds-block-cream);
 }
 
 .chat-banner.no-credit {
-  color: var(--accent-warning);
-  border-color: rgba(255, 159, 10, 0.32);
-  background: rgba(255, 159, 10, 0.1);
+  background: var(--ds-block-pink);
 }
 
 .chat-banner.unlocked {
-  color: var(--accent-success);
-  border-color: rgba(48, 209, 88, 0.3);
-  background: rgba(48, 209, 88, 0.1);
-}
-
-/* 按钮上方那行"要花几次"的小字 */
-.credit-hint {
-  margin-bottom: 14px;
-  font-size: 13px;
-  color: var(--text-tertiary);
+  background: var(--ds-block-mint);
 }
 
 .ai-chat-messages {
-  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-s-md);
+  max-height: 460px;
   overflow-y: auto;
-  padding: 16px;
-  background: var(--glass-bg);
-  border-radius: var(--radius-md);
-  margin-bottom: 12px;
+  padding: var(--ds-s-xs) 2px;
 }
 
 .ai-chat-message {
   display: flex;
-  gap: 12px;
-  margin-bottom: 16px;
+  gap: var(--ds-s-xs);
+  align-items: flex-start;
 }
 
 .ai-chat-message.user {
   flex-direction: row-reverse;
 }
 
-.ai-chat-message.user .message-content {
-  background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
-  color: #fff;
-}
-
-.ai-chat-message .message-avatar {
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
+.message-avatar {
+  width: 30px;
+  height: 30px;
+  flex: none;
+  border-radius: var(--ds-r-full);
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #fff;
-  flex-shrink: 0;
-}
-
-.ai-chat-message.assistant .message-avatar {
-  background: linear-gradient(135deg, var(--accent-warning), var(--accent-danger));
-}
-
-.ai-chat-message .message-content {
-  max-width: 80%;
-  padding: 12px 16px;
-  border-radius: var(--radius-md);
-  background: var(--glass-bg);
   font-size: 14px;
+}
+
+/* 用户 = 主色面，AI = lime。两个圆点就是这套系统里最小的两块颜色。 */
+.user .message-avatar {
+  background: var(--ds-primary);
+  color: var(--ds-on-primary);
+}
+
+.assistant .message-avatar {
+  background: var(--ds-block-lime);
+  color: var(--ds-ink);
+}
+
+.message-content {
+  max-width: 76%;
+  border-radius: var(--ds-r-md);
+  padding: 10px 14px;
+  font-size: 15px;
+  font-weight: var(--ds-fw-light);
   line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
-.empty-chat {
-  text-align: center;
-  color: var(--text-tertiary);
-  padding: 32px;
+.user .message-content {
+  background: var(--ds-primary);
+  color: var(--ds-on-primary);
 }
 
-/*
-  等待回复时的骨架条。高光用 --glass-bg → --glass-bg-active 这一对既有变量，
-  不写死颜色，深浅主题都不用另配。
-*/
+.assistant .message-content {
+  background: var(--ds-surface-soft);
+  color: var(--ds-ink);
+}
+
+/* 骨架条：等待模型回复时占位。三根线宽度递减排成一段文字的形状 */
 .shimmer-bubble {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  min-width: 200px;
-  /* 底色交给里面的横杠，自己不要 —— 灰杠浮在灰底上就看不出是骨架了 */
-  background: transparent;
+  gap: 7px;
+  min-width: 220px;
 }
 
 .shimmer-line {
-  display: block;
-  height: 12px;
-  border-radius: 6px;
+  height: 10px;
+  border-radius: var(--ds-r-full);
   background: linear-gradient(
     90deg,
-    var(--glass-bg) 25%,
-    var(--glass-bg-active) 37%,
-    var(--glass-bg) 63%
+    var(--ds-hairline-soft) 25%,
+    #e4e4e4 37%,
+    var(--ds-hairline-soft) 63%
   );
   background-size: 400% 100%;
-  animation: ai-chat-shimmer 1.4s ease-in-out infinite;
+  animation: shimmer 1.4s ease infinite;
 }
 
-@keyframes ai-chat-shimmer {
-  from {
+@keyframes shimmer {
+  0% {
     background-position: 100% 50%;
   }
-  to {
+  100% {
     background-position: 0 50%;
   }
 }
 
-/* 系统开了"减少动态效果"就只留静态横杠：这时候一条一直在扫的光比没有还烦 */
 @media (prefers-reduced-motion: reduce) {
   .shimmer-line {
     animation: none;
   }
 }
 
+.empty-chat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: var(--ds-s-xxl) var(--ds-s-md);
+  text-align: center;
+  color: var(--ds-ink);
+}
+
+.empty-chat__eyebrow {
+  opacity: 0.4;
+}
+
 .empty-chat p {
-  margin: 8px 0;
+  font-size: 15px;
+  font-weight: var(--ds-fw-light);
+}
+
+.empty-chat__eg {
+  opacity: 0.6;
 }
 
 .ai-chat-input {
   display: flex;
-  gap: 12px;
-}
-
-.ai-content {
-  font-size: 14px;
-  line-height: 1.8;
-  white-space: pre-wrap;
-  color: var(--text-secondary);
-  padding: 16px;
-  background: var(--glass-bg);
-  border-radius: var(--radius-md);
-}
-
-.empty-content {
-  text-align: center;
-  padding: 32px;
-  color: var(--text-tertiary);
-}
-
-.comments-card {
-  margin-bottom: 20px;
-}
-
-.comments-header {
-  display: flex;
-  justify-content: space-between;
+  gap: var(--ds-s-xs);
   align-items: center;
 }
 
-.comment-count {
-  font-size: 12px;
-  color: var(--text-tertiary);
+.ai-chat-input :deep(.el-input) {
+  flex: 1;
+}
+
+/* ============================================================
+   AI 内容 / 空态 / 额度提示
+   ============================================================ */
+.ai-content {
+  font-size: var(--ds-fs-body-sm);
+  font-weight: var(--ds-fw-light);
+  line-height: 1.7;
+  color: var(--ds-ink);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.empty-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--ds-s-md);
+  padding: var(--ds-s-xl) var(--ds-s-md);
+  text-align: center;
+}
+
+.credit-hint {
+  font-size: 14px;
+  font-weight: var(--ds-fw-light);
+  line-height: 1.6;
+  color: var(--ds-ink);
+  max-width: 62ch;
+}
+
+/* ============================================================
+   对话记录
+   ============================================================ */
+.comment-card {
+  margin-top: var(--ds-s-xxl);
+  background: var(--ds-canvas);
+  border: 1px solid var(--ds-hairline);
+  border-radius: var(--ds-r-lg);
+  padding: var(--ds-s-xl);
+}
+
+.comment-card__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--ds-s-md);
+  padding-bottom: var(--ds-s-md);
+  border-bottom: 1px solid var(--ds-hairline-soft);
+}
+
+.comment-card__title {
+  margin-top: 2px;
 }
 
 .comments-list {
-  max-height: 400px;
-  overflow-y: auto;
-  margin-bottom: 20px;
+  display: flex;
+  flex-direction: column;
 }
 
 .comment-item {
   display: flex;
-  gap: 16px;
-  margin-bottom: 20px;
-  padding-bottom: 20px;
-  border-bottom: 1px solid var(--glass-border);
+  gap: var(--ds-s-sm);
+  padding: var(--ds-s-md) 0;
+  border-bottom: 1px solid var(--ds-hairline-soft);
 }
 
 .comment-item:last-child {
   border-bottom: none;
-  margin-bottom: 0;
-  padding-bottom: 0;
 }
 
-.comment-item.is-ai .comment-avatar {
-  background: linear-gradient(135deg, var(--accent-warning), var(--accent-danger));
-}
-
+/* 内部留言：整条压成浅色底 + 左边一道色条，扫一眼就知道"这条不该外传" */
 .comment-item.is-internal {
-  opacity: 0.7;
+  background: var(--ds-block-cream);
+  border-radius: var(--ds-r-md);
+  padding: var(--ds-s-md);
+  border-bottom-color: transparent;
+  margin-bottom: var(--ds-s-xs);
 }
 
 .comment-avatar {
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
+  width: 32px;
+  height: 32px;
+  flex: none;
+  border-radius: var(--ds-r-full);
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #fff;
-  flex-shrink: 0;
+  font-size: 15px;
+  background: var(--ds-surface-soft);
+  color: var(--ds-ink);
+}
+
+/* AI 建议的那条：头像换成浅紫，跟人写的区分开 */
+.comment-item.is-ai .comment-avatar {
+  background: var(--ds-block-lilac);
 }
 
 .comment-body {
   flex: 1;
+  min-width: 0;
 }
 
 .comment-meta {
   display: flex;
   align-items: center;
-  gap: 10px;
-  margin-bottom: 8px;
+  gap: var(--ds-s-xs);
   flex-wrap: wrap;
+  margin-bottom: 6px;
 }
 
 .comment-author {
-  font-weight: 600;
   font-size: 14px;
-  color: var(--text-primary);
+  font-weight: var(--ds-fw-semi);
+  color: var(--ds-ink);
 }
 
 .comment-time {
-  font-size: 12px;
-  color: var(--text-tertiary);
+  font-family: var(--ds-font-mono);
+  font-size: 11px;
+  letter-spacing: 0.4px;
+  color: var(--ds-ink);
+  opacity: 0.5;
+  margin-left: auto;
 }
 
 .comment-content {
-  font-size: 14px;
-  line-height: 1.7;
-  color: var(--text-secondary);
+  font-size: var(--ds-fs-body-sm);
+  font-weight: var(--ds-fw-light);
+  line-height: 1.6;
+  color: var(--ds-ink);
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .empty-comments {
-  text-align: center;
-  padding: 48px;
-  color: var(--text-tertiary);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: var(--ds-s-xxl) var(--ds-s-md);
+  color: var(--ds-ink);
 }
 
+.empty-comments .ds-caption {
+  opacity: 0.4;
+}
+
+.empty-comments p {
+  font-size: var(--ds-fs-body-sm);
+}
+
+/* 输入区：浅底一块，跟上面的记录列表分开 */
 .comment-input {
-  padding: 16px;
-  border-radius: var(--radius-md) !important;
+  margin-top: var(--ds-s-md);
+  background: var(--ds-surface-soft);
+  border-radius: var(--ds-r-md);
+  padding: var(--ds-s-md);
 }
 
 .comment-input-actions {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  margin-top: 12px;
+  justify-content: space-between;
+  gap: var(--ds-s-md);
+  margin-top: var(--ds-s-sm);
 }
 
-/* 访客看到的"登录后参与讨论"，代替输入框 */
 .comment-login-hint {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  padding: 6px 4px;
-  font-size: 14px;
-  color: var(--text-tertiary);
+  gap: var(--ds-s-md);
+  font-size: 15px;
+  color: var(--ds-ink);
 }
 
-.btn-glass-success {
-  background: linear-gradient(135deg, var(--accent-success), #7dffb3) !important;
+/* ============================================================
+   响应式
+   ============================================================ */
+@media (max-width: 960px) {
+  .detail-meta {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .meta-item:nth-child(2) {
+    border-right: none;
+  }
+
+  .meta-item:nth-child(-n + 2) {
+    border-bottom: 1px solid var(--ds-hairline-soft);
+  }
+}
+
+@media (max-width: 768px) {
+  .content-card,
+  .comment-card {
+    padding: var(--ds-s-lg);
+  }
+
+  .detail-title {
+    max-width: none;
+  }
+
+  .message-content {
+    max-width: 84%;
+  }
+
+  .ai-block__head {
+    gap: var(--ds-s-sm);
+  }
+
+  /* 色块内边距在窄屏收到 24px，否则白面板只剩半屏宽 */
+  .ai-block {
+    padding: var(--ds-s-lg);
+  }
+}
+
+@media (max-width: 560px) {
+  .detail-meta {
+    grid-template-columns: 1fr;
+  }
+
+  .meta-item {
+    border-right: none;
+    border-bottom: 1px solid var(--ds-hairline-soft);
+    padding-right: 0;
+  }
+
+  .meta-item:last-child {
+    border-bottom: none;
+  }
+
+  .detail-actions .ds-btn {
+    flex: 1;
+  }
 }
 </style>

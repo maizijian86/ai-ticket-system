@@ -1,4 +1,4 @@
-import type { TicketCategory, TicketStatus } from '@/types'
+import type { TicketCategory, TicketStatus, Urgency } from '@/types'
 
 /**
  * 工单状态 / 分类的展示映射 —— 全站唯一一份。
@@ -50,6 +50,17 @@ const CATEGORY_TAG_TYPES: Record<TicketCategory, string> = {
   OTHER: 'info'
 }
 
+/**
+ * 紧急程度 -> 展示文案。四档逐字照抄发布表单（TicketCreate.vue 的 radio 标签）——
+ * 详情页以前**从没显示过**这个字段，所以它是这里的第一份映射，没有历史漂移可对齐。
+ */
+const URGENCY_LABELS: Record<Urgency, string> = {
+  LOW: '低',
+  NORMAL: '普通',
+  HIGH: '紧急',
+  CRITICAL: '非常紧急'
+}
+
 // 入参用 string 而不是联合类型：值来自后端响应，出现未知状态时
 // 要能原样显示（而不是崩掉或显示 undefined），这正是最后那个 `||` 的用处。
 export function getStatusLabel(status: string) {
@@ -66,4 +77,28 @@ export function getCategoryLabel(category: string) {
 
 export function getCategoryType(category: string) {
   return CATEGORY_TAG_TYPES[category as TicketCategory] || 'info'
+}
+
+/** 入参同 getStatusLabel：后端给了未知值时原样显示，不吞成 undefined。 */
+export function getUrgencyLabel(urgency: string) {
+  return URGENCY_LABELS[urgency as Urgency] || urgency
+}
+
+/**
+ * 项目类型 -> 展示文案。取值与发布表单（TicketCreate.vue 的 el-option）一致，
+ * 存的是 JavaWeb / Python 这类英文枚举；不映射的话大厅卡片和详情页头会直接
+ * 印出 "JavaWeb"，混在一堆中文标签里像没做完。
+ */
+const PROJECT_TYPE_LABELS: Record<string, string> = {
+  JavaWeb: 'JavaWeb 项目',
+  Python: 'Python 项目',
+  Frontend: '前端项目',
+  FullStack: '全栈项目',
+  Mobile: '移动端项目',
+  Other: '其他'
+}
+
+/** 入参同 getStatusLabel：后端给了未知值时原样显示，不吞成空串。 */
+export function getProjectTypeLabel(projectType: string) {
+  return PROJECT_TYPE_LABELS[projectType] || projectType
 }
