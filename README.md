@@ -5,6 +5,37 @@
 
 ---
 
+## 界面预览
+
+以下截图取自本地开发环境（Chrome，1920×1032，演示数据来自 `db/seed/real_tickets.sql`），
+原图存放在 `docs/screenshots/`，点击图片可查看大图。
+
+### 需求大厅 · 一屏看清待办与工单
+
+[![需求大厅：统计卡 + 工单卡片流](docs/screenshots/requirement-hall.jpg)](docs/screenshots/requirement-hall.jpg)
+
+- 顶部五张统计卡按当前身份统计「待接单 / 我的发布 / 待完成 / 我接的单 / 已完成」。
+- 卡片直接摊开决策信息：`#编号`、状态、优先级（P0–P2）、技术栈标签、预算、发布方与发布时间。
+- 已消耗额度的工单会标注「AI 已解锁 · 接单后 AI 分析与对话免费」，接单前就能算清成本。
+
+### 工单详情 · 需求与 AI 能力一页看完
+
+[![工单详情：需求描述 + AI 能力卡](docs/screenshots/ticket-detail.jpg)](docs/screenshots/ticket-detail.jpg)
+
+- 左栏按「需求描述 → 详细需求 → 技术栈」排布，详细需求保留原始编号，验收时逐条对照。
+- 右栏 `NEXT STEP` 卡片按工单状态给出下一步动作：未被接单时就是「接单」。
+- AI 分析 / AI 对话 / PRD 三张能力卡在接单后解锁，未接单时明确置灰，不做无效点击。
+
+### 开通会员 · 额度、套餐与订单
+
+[![开通会员：额度状态 + 套餐对比 + 订单](docs/screenshots/membership.jpg)](docs/screenshots/membership.jpg)
+
+- 顶部状态条给出可用额度、会员状态、到期日与最近一批额度过期时间，先回答「还能用几次」。
+- Lite / Pro / Max 三档同屏对比：价格、单次折算（约 1.20 / 1.00 / 0.65 元每次）、权益与有效期。
+- 底部是权益说明与「我的订单」，待支付订单可续付或查看。
+
+---
+
 ## 技术栈
 
 | 层 | 使用 |
@@ -167,6 +198,7 @@ ai-ticket-system/
 │   ├── schema.sql   # 建库脚本
 │   ├── migration.sql# 补列脚本（不可重复执行）
 │   └── seed/        # 演示数据
+├── docs/            # screenshots/ 存 README 界面截图（1920×1032）
 ├── docker-compose.yml
 └── DESIGN.md        # 视觉规范
 ```
