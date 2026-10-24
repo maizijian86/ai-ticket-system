@@ -5,8 +5,8 @@
  * 而订单状态在**三处**要用（支付结果页、开通会员页的订单列表、个人主页），
  * 复制三份必然会漂移 —— 这正是 ticket-labels.ts 开头那段教训的由来。
  *
- * ⚠️ 注意 `PENDING` 这个词在 `types/index.ts` 里已经被 `ProjectStatus` 占用，
- * 那是项目流转的状态，与订单的 PENDING 不是一回事，别为了"复用"把两者并成一个联合类型。
+ * ⚠️ 注意 `PENDING` 在**别的域**也出现过同名值（项目管理的 ProjectStatus 曾经有），
+ * 那个模块已整体下线，现在全局只有订单域这一个 PENDING —— 别再引入第二个同名字段。
  *
  * 与 Vue 时代那份（utils/order-labels.ts）的差别只有一处：配色从 el-tag 的色名
  * 换成了 Tailwind 类名。语义没变 —— 特别是 **CLOSED 用中性色而不是红**：

@@ -5,10 +5,9 @@ import { ChartColumn, LoaderCircle, TriangleAlert } from '@/components/icons'
 import { CARD_BASE, PAGE, PageHeader } from '@/components/layout/PageShell'
 import { ticketApi } from '@/api/ticket'
 import { userApi } from '@/api/user'
-import { projectApi } from '@/api/project'
 import { getStatusLabel } from '@/utils/ticket-labels'
 import { cn } from '@/lib/utils'
-import type { ProjectStatus, Role, TicketStatus } from '@/types'
+import type { Role, TicketStatus } from '@/types'
 
 /*
   统计分析（管理员）。
@@ -21,9 +20,13 @@ import type { ProjectStatus, Role, TicketStatus } from '@/types'
   真正的选择是"加一个全局统计接口"还是"用现有列表接口的 total 聚合"。选了后者：
   `GET /tickets?status=X&pageSize=1` 返回的 `total` 就是该状态的全量计数，
   一次一个数字、零后端改动、口径与大厅完全一致（同一个 Specification 算出来的）。
-  代价是 5+4+4 个请求 —— 管理后台的访问频率下这不构成问题，而且它们并发发出。
+  代价是 6+3 个请求 —— 管理后台的访问频率下这不构成问题，而且它们并发发出。
 
   真要上量（几万张单、需要时间序列），该做的是后端加聚合查询，不是在这页加缓存。
+
+  ── 2026-10 移除了「项目进度」一块 ──
+  项目管理模块已整体下线（后端 Project 系列接口与 5 张表都删了），这一块的数据源
+  （`projectApi.countByStatus`）也随之消失。不要再把它加回来。
 */
 
 /** 工单状态分布。顺序按业务流程排，不按枚举字母序 */
@@ -46,18 +49,11 @@ const STATUS_BAR_COLORS: Record<TicketStatus, string> = {
   CLOSED: 'bg-zinc-400'
 }
 
+/** 三种身份。2026-10 移除了 USER（后端枚举同步删除），这里只剩三类 */
 const ROLES: { value: Role; label: string }[] = [
   { value: 'PUBLISHER', label: '发布者' },
   { value: 'HANDLER', label: '接单者' },
-  { value: 'ADMIN', label: '管理员' },
-  { value: 'USER', label: '普通用户' }
-]
-
-const PROJECT_STATUSES: { value: ProjectStatus; label: string }[] = [
-  { value: 'PLANNING', label: '规划中' },
-  { value: 'IN_PROGRESS', label: '进行中' },
-  { value: 'COMPLETED', label: '已完成' },
-  { value: 'ARCHIVED', label: '已归档' }
+  { value: 'ADMIN', label: '管理员' }
 ]
 
 export default function AdminStats() {
@@ -65,14 +61,13 @@ export default function AdminStats() {
 
   const [ticketCounts, setTicketCounts] = useState<Record<string, number> | null>(null)
   const [roleCounts, setRoleCounts] = useState<Record<string, number> | null>(null)
-  const [projectCounts, setProjectCounts] = useState<Record<string, number> | null>(null)
   const [failed, setFailed] = useState(false)
 
   const load = useCallback(async () => {
     setFailed(false)
     try {
-      // 并发发出：三组请求互不依赖，串行会让这页慢三倍
-      const [tickets, roles, projects] = await Promise.all([
+      // 并发发出：两组请求互不依赖，串行会让这页慢一倍
+      const [tickets, roles] = await Promise.all([
         Promise.all(
           TICKET_STATUSES.map((s) =>
             ticketApi
@@ -84,21 +79,13 @@ export default function AdminStats() {
           ROLES.map((r) =>
             userApi.listUsers(1, 1, r.value).then((res) => [r.value, res.total] as const)
           )
-        ),
-        // 项目统计走后端现成的 /stats/count/{status}，逐条并发
-        Promise.all(
-          PROJECT_STATUSES.map((p) =>
-            projectApi.countByStatus(p.value).then((n) => [p.value, n] as const)
-          )
         )
       ])
 
       setTicketCounts(Object.fromEntries(tickets))
       setRoleCounts(Object.fromEntries(roles))
-      setProjectCounts(Object.fromEntries(projects))
     } catch {
-      // 项目那组最容易失败（它有 requireAuthLoader 之外的角色限制），
-      // 失败时整页给一个可重试的状态，而不是半页有数字半页空白
+      // 任一组失败就整页给一个可重试的状态，而不是半页有数字半页空白
       setFailed(true)
     }
   }, [])
@@ -109,7 +96,6 @@ export default function AdminStats() {
 
   const ticketTotal = ticketCounts ? Object.values(ticketCounts).reduce((a, b) => a + b, 0) : 0
   const userTotal = roleCounts ? Object.values(roleCounts).reduce((a, b) => a + b, 0) : 0
-  const projectTotal = projectCounts ? Object.values(projectCounts).reduce((a, b) => a + b, 0) : 0
 
   return (
     <div className={PAGE}>
@@ -117,7 +103,7 @@ export default function AdminStats() {
         <PageHeader
           eyebrow="Admin · Stats"
           title="统计分析"
-          desc="全站口径：工单状态分布、用户构成、项目进度。点任一数字可跳到对应的列表。"
+          desc="全站口径：工单状态分布、用户构成。点任一数字可跳到对应的列表。"
           actions={
             <button
               type="button"
@@ -200,77 +186,35 @@ export default function AdminStats() {
             </section>
           </AnimatedContent>
 
-          <div className="flex flex-col gap-4">
-            {/* ── 用户构成 ── */}
-            <AnimatedContent trigger="mount" distance={24} duration={0.5} ease="power2.out" delay={0.06} threshold={0}>
-              <section className={cn(CARD_BASE, 'p-6')}>
-                <div className="flex items-baseline justify-between">
-                  <h2 className="text-sm font-semibold">用户构成</h2>
-                  <span className="text-xs text-muted-foreground">
-                    {roleCounts ? `共 ${userTotal} 人` : '…'}
-                  </span>
+          {/* ── 用户构成 ── */}
+          <AnimatedContent trigger="mount" distance={24} duration={0.5} ease="power2.out" delay={0.06} threshold={0}>
+            <section className={cn(CARD_BASE, 'h-full p-6')}>
+              <div className="flex items-baseline justify-between">
+                <h2 className="text-sm font-semibold">用户构成</h2>
+                <span className="text-xs text-muted-foreground">
+                  {roleCounts ? `共 ${userTotal} 人` : '…'}
+                </span>
+              </div>
+
+              {!roleCounts ? (
+                <Skeleton rows={3} />
+              ) : (
+                <div className="mt-4 grid grid-cols-3 gap-3">
+                  {ROLES.map((r) => (
+                    <button
+                      key={r.value}
+                      type="button"
+                      onClick={() => navigate('/admin/users')}
+                      className="cursor-pointer rounded-xl border border-border bg-background px-3 py-3 text-left transition-colors hover:bg-muted/60"
+                    >
+                      <div className="text-lg font-semibold tabular-nums">{roleCounts[r.value] ?? 0}</div>
+                      <div className="mt-0.5 text-[11px] text-muted-foreground">{r.label}</div>
+                    </button>
+                  ))}
                 </div>
-
-                {!roleCounts ? (
-                  <Skeleton rows={4} />
-                ) : (
-                  <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
-                    {ROLES.map((r) => (
-                      <button
-                        key={r.value}
-                        type="button"
-                        onClick={() => navigate('/admin/users')}
-                        className="cursor-pointer rounded-xl border border-border bg-background px-3 py-3 text-left transition-colors hover:bg-muted/60"
-                      >
-                        <div className="text-lg font-semibold tabular-nums">{roleCounts[r.value] ?? 0}</div>
-                        <div className="mt-0.5 text-[11px] text-muted-foreground">{r.label}</div>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </section>
-            </AnimatedContent>
-
-            {/* ── 项目进度 ── */}
-            <AnimatedContent trigger="mount" distance={24} duration={0.5} ease="power2.out" delay={0.1} threshold={0}>
-              <section className={cn(CARD_BASE, 'p-6')}>
-                <div className="flex items-baseline justify-between">
-                  <h2 className="text-sm font-semibold">项目进度</h2>
-                  <span className="text-xs text-muted-foreground">
-                    {projectCounts ? `共 ${projectTotal} 个` : '…'}
-                  </span>
-                </div>
-
-                {!projectCounts ? (
-                  <Skeleton rows={4} />
-                ) : projectTotal === 0 ? (
-                  <p className="mt-4 text-sm text-muted-foreground">
-                    还没有项目。项目模块的前端页面尚未开放，但接口与数据都在。
-                  </p>
-                ) : (
-                  <ul className="mt-4 space-y-2.5">
-                    {PROJECT_STATUSES.map((p) => {
-                      const count = projectCounts[p.value] ?? 0
-                      const pct = projectTotal ? (count / projectTotal) * 100 : 0
-                      return (
-                        <li key={p.value}>
-                          <div className="flex items-baseline justify-between text-sm">
-                            <span>{p.label}</span>
-                            <span className="font-mono text-xs text-muted-foreground">
-                              {count} · {Math.round(pct)}%
-                            </span>
-                          </div>
-                          <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-muted">
-                            <div className="h-full rounded-full bg-foreground/70" style={{ width: `${pct}%` }} />
-                          </div>
-                        </li>
-                      )
-                    })}
-                  </ul>
-                )}
-              </section>
-            </AnimatedContent>
-          </div>
+              )}
+            </section>
+          </AnimatedContent>
         </div>
       )}
     </div>

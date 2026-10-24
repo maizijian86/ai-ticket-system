@@ -162,7 +162,15 @@ request.interceptors.response.use(
     }
 
     if (error.response?.status === 401) {
-      forceLogin()
+      /*
+        提示语优先用**后端给的那句**。
+        网关对"从没登录"返回的是 "请先登录"，token 过期才是"登录已过期" ——
+        这里写死一个文案的话，从没登录的人会被告知"你刚刚被踢下线了"，
+        会去怀疑是自己网络/账号出了问题。上面第 157 行（刷新失败那条路径）
+        保持默认文案不动：那里确实就是过期。
+      */
+      const backendMessage = (error.response?.data as { message?: string } | undefined)?.message
+      forceLogin(backendMessage || '请先登录')
     } else {
       toast.error(error.message || '网络错误')
     }

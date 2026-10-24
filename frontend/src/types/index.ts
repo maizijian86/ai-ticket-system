@@ -68,14 +68,14 @@ export interface UserAvatarDTO {
 /**
  * 账号身份，与后端 common/enums/Role.java 一一对应。
  *
- * 此前这里只有 'USER' | 'ADMIN' —— HANDLER 加进后端枚举之后前端就没跟上，只是
+ * 2026-10 移除了 USER（后端枚举同步删除）：它是个含混的中间态，既然任何身份都能发需求也能接单，
  * 因为 stores/auth.ts 里有一句 `role: data.role as any` 把类型检查绕过去了，
  * 所以一直没报错。补全之后那句 as any 也一并删掉了。
  *
  * 身份决定**大厅顶上给你看哪几张卡**（见 views/ticket/TicketList.vue），
  * 不决定某个工单里你能做什么 —— 那按 creatorId / handlerId 判。
  */
-export type Role = 'USER' | 'HANDLER' | 'PUBLISHER' | 'ADMIN'
+export type Role = 'HANDLER' | 'PUBLISHER' | 'ADMIN'
 
 export interface UserSkillDTO {
   id: number
@@ -352,6 +352,22 @@ export interface TicketStatsDTO {
   activeAsCreator: number
   /** 我接的、还没结的（同上状态集）。接单者的「进行中」卡。 */
   activeAsHandler: number
+
+  // ---------------- 个人统计页用（2026-10 加） ----------------
+  //
+  // 三个字段都是**查询结果**，后端没有加任何数据库列。
+  // 金额读的是钱包域的真实结算记录，**不是 SUM(budget)**：
+  //   · budget 在"未接单时"可以被发布者改，与"当初结算了多少"不是一回事；
+  //   · 钱包上线前创建的工单没有托管行、从未结算，用 budget 会把它们算成收入。
+
+  /** 我**发布**的、已完成的数量。「发布完成率」的分子 */
+  completedAsCreator: number
+
+  /** 我**实际收到的**工单款合计（真钱，已进钱包余额，不可提现） */
+  settledIncome: number
+
+  /** 我**实际付出去的**工单款合计（真钱） */
+  settledPayout: number
 }
 
 export interface ClassifyResponse {
@@ -437,120 +453,6 @@ export interface DeliveryFile {
   createdAt?: string
 }
 
-// ============================================================ 项目域
-// 字段对齐 ticket-service 的 Project / ProjectModule / ProjectTask /
-// Milestone / ProjectDiscussion 实体。BaseEntity 提供 id 与三个时间戳。
-
-export type ProjectStatus = 'PLANNING' | 'IN_PROGRESS' | 'COMPLETED' | 'ARCHIVED'
-export type ProjectType = 'THESIS' | 'OUTSOURCE' | 'INTERNAL' | 'PERSONAL'
-export type ModuleStatus = 'PENDING' | 'IN_PROGRESS' | 'COMPLETED'
-/**
- * 任务状态。取值以「后端会存什么 + 前端会显示什么」为准：
- * ProjectService 只显式写过 TODO / DONE，其余由 updateTaskStatus 原样存库，
- * 而看板（TaskBoard）有一列「评审中」并允许把任务移过去，所以 REVIEW 是真实可达的。
- * 曾经这里还写过一个 BLOCKED —— 前后端都没有任何地方产生或消费它，已删。
- */
-export type TaskStatus = 'TODO' | 'IN_PROGRESS' | 'REVIEW' | 'DONE'
-/**
- * 里程碑状态。后端 ProjectService 用 setStatus("ACHIEVED") 标记完成（不是 COMPLETED），
- * MilestoneList 也按 ACHIEVED / MISSED 显示。此前这里写成 COMPLETED | DELAYED，
- * 两个值后端都不产生 —— 类型与实现各错一半，谁也发现不了。
- */
-export type MilestoneStatus = 'PENDING' | 'ACHIEVED' | 'MISSED'
-/** 讨论挂在谁身上：项目 / 模块 / 任务 / 里程碑 */
-export type DiscussionTargetType = 'PROJECT' | 'MODULE' | 'TASK' | 'MILESTONE'
-
-interface BaseDTO {
-  id: number
-  createdAt?: string
-  updatedAt?: string
-}
-
-export interface ProjectDTO extends BaseDTO {
-  name: string
-  description?: string
-  projectType?: ProjectType
-  aiPrd?: string
-  aiTechStack?: string
-  aiEstimatedHours?: number
-  aiEstimatedDays?: number
-  aiRiskAnalysis?: string
-  status?: ProjectStatus
-  priority?: Priority
-  deadline?: string
-  actualStartDate?: string
-  actualEndDate?: string
-  progress?: number
-  totalTasks?: number
-  completedTasks?: number
-  creatorId?: number
-  creatorName?: string
-  attachments?: Record<string, unknown>
-}
-
-export interface ProjectModuleDTO extends BaseDTO {
-  projectId: number
-  name: string
-  description?: string
-  sortOrder?: number
-  status?: ModuleStatus
-  progress?: number
-  totalTasks?: number
-  completedTasks?: number
-}
-
-export interface ProjectTaskDTO extends BaseDTO {
-  projectId: number
-  moduleId?: number
-  parentTaskId?: number
-  title: string
-  description?: string
-  taskType?: string
-  status?: TaskStatus
-  priority?: Priority
-  estimatedHours?: number
-  actualHours?: number
-  aiEstimatedHours?: number
-  aiSuggestion?: string
-  deadline?: string
-  completedAt?: string
-  assigneeId?: number
-  assigneeName?: string
-}
-
-export interface MilestoneDTO extends BaseDTO {
-  projectId: number
-  name: string
-  description?: string
-  dueDate?: string
-  actualDate?: string
-  status?: MilestoneStatus
-  sortOrder?: number
-}
-
-export interface ProjectDiscussionDTO extends BaseDTO {
-  projectId: number
-  targetType?: DiscussionTargetType
-  targetId?: number
-  userId?: number
-  userName?: string
-  content: string
-  isAiSuggested?: boolean
-}
-
-/** 后端各实体用 @RequestBody 直接收实体，所以写入类型就是字段的子集。 */
-export type CreateProjectRequest = Omit<ProjectDTO, 'id' | 'createdAt' | 'updatedAt'>
-export type UpdateProjectRequest = Partial<CreateProjectRequest>
-export type CreateModuleRequest = Omit<ProjectModuleDTO, 'id' | 'projectId' | 'createdAt' | 'updatedAt'>
-export type UpdateModuleRequest = Partial<CreateModuleRequest>
-export type CreateTaskRequest = Omit<ProjectTaskDTO, 'id' | 'projectId' | 'createdAt' | 'updatedAt'>
-export type UpdateTaskRequest = Partial<CreateTaskRequest>
-export type CreateMilestoneRequest = Omit<MilestoneDTO, 'id' | 'projectId' | 'createdAt' | 'updatedAt'>
-export type UpdateMilestoneRequest = Partial<CreateMilestoneRequest>
-export type CreateDiscussionRequest = Pick<ProjectDiscussionDTO, 'content'> &
-  Partial<Pick<ProjectDiscussionDTO, 'targetType' | 'targetId'>>
-export type UpdateAiAnalysisRequest = Pick<ProjectDTO, 'aiPrd' | 'aiTechStack' | 'aiEstimatedHours' | 'aiEstimatedDays' | 'aiRiskAnalysis'>
-
 // ---------------------------------------------------------------- 响应信封
 /**
  * 后端统一响应体 `{code, message, data}`。
@@ -558,8 +460,8 @@ export type UpdateAiAnalysisRequest = Pick<ProjectDTO, 'aiPrd' | 'aiTechStack' |
  * ⚠️ 2026-10 起前端**所有**接口都走 `src/api/client.ts`，它的响应拦截器会把信封
  * 剥掉、只交出 `data`，所以业务代码里已经拿不到这个形状了。
  * 这个类型保留是给 `api/client.ts` 的拦截器实现做标注用的 —— 别在页面里写
- * `res.data`，那层解包已经做过了（此前 `api/project.ts` 自建的那套实例就是
- * 不剥信封的，两套语义混用踩过坑，见那个文件的注释）。
+ * `res.data`，那层解包已经做过了（此前有个模块自建了一套不剥信封的实例，
+ * 两套语义混用踩过坑 —— 那种写法已经全部删掉了）。
  */
 export interface ApiEnvelope<T> {
   code: number
@@ -571,14 +473,6 @@ export interface ApiEnvelope<T> {
  * Spring Data 的 Page<T> 序列化后的形状，只列出前端真正用到的字段。
  * 与后端自带的 PageResult DTO 不是一回事：那个是 { total, page, pageSize, data }。
  */
-export interface SpringPage<T> {
-  content: T[]
-  totalElements: number
-  totalPages: number
-  number: number
-  size: number
-}
-
 // ==================== 会员与会员订单 ====================
 
 /** 一个会员套餐。价格与权益由后端配置，前端只展示 */
@@ -613,8 +507,8 @@ export interface MembershipDTO {
 /**
  * 会员订单。
  *
- * ⚠️ 这里的 `PENDING` 与 `ProjectStatus` 的 `PENDING` **是两个不同的联合类型**，
- * 只是名字撞了，别并成一个。
+ * ⚠️ 这里的 `PENDING` 是订单域的待支付。全局只有这一处 PENDING 了
+ * （项目管理的 ProjectStatus 已随模块下线删除），别再引入第二个同名字段。
  */
 export interface MembershipOrderDTO {
   orderId: number

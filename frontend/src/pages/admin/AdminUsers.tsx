@@ -34,21 +34,18 @@ const ROLE_OPTIONS: { value: Role | ''; label: string }[] = [
   { value: 'PUBLISHER', label: '发布者' },
   { value: 'HANDLER', label: '接单者' },
   { value: 'ADMIN', label: '管理员' },
-  { value: 'USER', label: '普通用户' }
 ]
 
 const ROLE_LABELS: Record<string, string> = {
   PUBLISHER: '发布者',
   HANDLER: '接单者',
   ADMIN: '管理员',
-  USER: '普通用户'
 }
 
 const ROLE_TONES: Record<string, string> = {
   PUBLISHER: 'border-sky-300 bg-sky-50 text-sky-700',
   HANDLER: 'border-emerald-300 bg-emerald-50 text-emerald-700',
   ADMIN: 'border-violet-300 bg-violet-100 text-violet-700',
-  USER: 'border-border bg-muted text-muted-foreground'
 }
 
 export default function AdminUsers() {
@@ -225,7 +222,7 @@ export default function AdminUsers() {
                             <span
                               className={cn(
                                 'inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium',
-                                ROLE_TONES[u.role] ?? ROLE_TONES.USER
+                                ROLE_TONES[u.role] ?? 'border-border bg-muted text-muted-foreground'
                               )}
                             >
                               {ROLE_LABELS[u.role] ?? u.role}
@@ -240,7 +237,6 @@ export default function AdminUsers() {
                               <option value="PUBLISHER">发布者</option>
                               <option value="HANDLER">接单者</option>
                               <option value="ADMIN">管理员</option>
-                              <option value="USER">普通用户</option>
                             </select>
                           </div>
                         </td>

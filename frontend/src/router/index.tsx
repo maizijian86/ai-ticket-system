@@ -1,7 +1,6 @@
 import { createBrowserRouter, redirect } from 'react-router-dom'
 import type { ComponentType } from 'react'
 import AppLayout from '@/layouts/AppLayout'
-import Placeholder from '@/components/feedback/Placeholder'
 import { requireAdminLoader, requireAuthLoader } from './guards'
 
 /**
@@ -39,11 +38,6 @@ function page(loader: () => Promise<{ default: ComponentType }>) {
   }
 }
 
-/** 还没做的模块，渲染"即将上线"。只有项目管理在用（见 Placeholder 的注释）。 */
-const comingSoon = (title: string) => {
-  const El = () => <Placeholder title={title} />
-  return { Component: El }
-}
 
 const toTickets = () => redirect('/tickets')
 
@@ -85,12 +79,7 @@ export const router = createBrowserRouter([
       { path: 'knowledge', loader: toTickets },
 
       // 项目管理。后端 35 个接口可用，前端三页属于单独排期的工作量，
-      // 本轮先用「即将上线」承接（见 components/feedback/Placeholder.tsx）。
-      { path: 'projects', loader: requireAuthLoader, ...comingSoon('项目管理') },
-      // 必须排在 projects/:id 之前 —— 静态段优先，但把这条写在前面能让
       // 「create 被当成 id」这件事一眼可见。
-      { path: 'projects/create', loader: requireAuthLoader, ...comingSoon('新建项目') },
-      { path: 'projects/:id', loader: requireAuthLoader, ...comingSoon('项目详情') },
 
       // 会员与个人主页。三条都要登录：会员页要显示自己的余额与到期日、结果页要查
       // 自己那笔单（后端按网关注入的身份校验归属，未登录会 401），个人主页更不用说。
@@ -99,6 +88,10 @@ export const router = createBrowserRouter([
       // 单号由支付宝以 out_trade_no 追加在 query 上。
       { path: 'membership/result', loader: requireAuthLoader, lazy: page(() => import('@/pages/membership/MembershipResult')) },
       { path: 'profile', loader: requireAuthLoader, lazy: page(() => import('@/pages/profile/Profile')) },
+
+      // 个人信息统计。原「项目管理」在顶栏的位置换成了它（模块已下线）。
+      // 必须登录：数字全是按网关注入的身份算的。
+      { path: 'stats', loader: requireAuthLoader, lazy: page(() => import('@/pages/stats/PersonalStats')) },
 
       // 钱包。两条都必须登录：钱包/流水是按网关注入的身份查的，
       // 结果页要查自己那笔充值单（后端会校验归属，未登录直接 401）。

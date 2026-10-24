@@ -536,7 +536,6 @@ function RoleChip({ role }: { role?: string }) {
     PUBLISHER: { label: '发布者', className: 'border-sky-300 bg-sky-50 text-sky-700' },
     HANDLER: { label: '接单者', className: 'border-emerald-300 bg-emerald-50 text-emerald-700' },
     ADMIN: { label: '管理员', className: 'border-violet-300 bg-violet-100 text-violet-700' },
-    USER: { label: '普通用户', className: 'border-border bg-muted text-muted-foreground' }
   }
   const item = role ? map[role] : undefined
   if (!item) return null
