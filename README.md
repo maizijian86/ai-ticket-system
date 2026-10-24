@@ -121,6 +121,12 @@ ALIPAY_PRIVATE_KEY=...
 ALIPAY_PUBLIC_KEY=...
 ALIPAY_NOTIFY_URL=https://<你的公网隧道>/api/v1/membership/callback/alipay
 ALIPAY_RETURN_URL=http://localhost:3000/membership/result
+
+# 支付宝沙箱（钱包充值）—— 必须与会员那两个分开
+# 支付宝只会把异步通知 POST 到"下单那一刻"给它的地址，两个回调处理器各自
+# 只认自己的单号前缀（MEM / WAL）。不配这两项时只有充值不可用，会员照常能买。
+ALIPAY_WALLET_NOTIFY_URL=https://<你的公网隧道>/api/v1/wallet/callback/alipay
+ALIPAY_WALLET_RETURN_URL=http://localhost:3000/wallet/result
 ```
 
 也可以放到各服务的 `src/main/resources/application-secret.yml`（已被 `.gitignore` 排除）。
@@ -180,6 +186,7 @@ npm run audit:reach  # 从 main.tsx 做可达性分析，列出没人引用的�
 | 发布 / 编辑需求 | ✅ |
 | 工单私聊 | ✅ |
 | 会员套餐 / 支付宝下单 / 支付结果页（轮询 + 切回重查） | ✅ |
+| **钱包：充值 / 余额 / 资金流水 / 发布冻结 / 验收结算** | ✅ 充值走支付宝沙箱；余额仅限站内使用，**不可提现** |
 | 个人主页（头像、昵称、额度、订单、接单者技能） | ✅ |
 | 用户管理 / 统计分析（管理员） | ✅ |
 | 项目管理（项目 / 模块 / 任务 / 里程碑 / 讨论） | ⚠️ 后端 32 个接口可用，前端三个页面未实现（入口显示「即将上线」） |
@@ -212,3 +219,35 @@ ai-ticket-system/
 - 支付结果页会轮询查单；`PENDING` 超过 15 分钟时后端会主动向支付宝查一次兜底，
   所以回调丢失也能自愈。
 - 会员额度「发布即消耗、不退还」；一张工单最多消耗 2 次（分析+对话算一次，PRD 另算）。
+
+### 资金（钱包）
+
+- **余额不可提现**，只能用于站内发布工单。这是产品设定，不是未实现的功能。
+- **发布工单会冻结预算**（可用 → 冻结）。钱不够就发不出去，返回 402 并带上差额。
+  冻结是必须的：若只校验不冻结，同一笔钱能发出任意多张单，最终只有第一张能结算成功。
+- **验收通过 = 结算 = 不可逆**。之后这张工单**不能重新开放**（钱已经在接单者账上）；
+  只有"已关闭"的工单可以重开，重开会重新冻结一轮。
+- 工单关闭或删除会把托管全额退回发布者可用余额；**驳回不动钱**（还在流程里）。
+- 四张表：`user_wallet`（余额）、`ticket_escrow`（单张工单当前托管额）、
+  `wallet_order`（充值单）、`wallet_transaction`（只增不改的流水）。
+- **结算/退款只读 `ticket_escrow.amount`，绝不读 `ticket.budget`** ——
+  发布者在未接单时可以改预算，改完之后两者不是一回事。代码层面靠方法签名保证
+  （`settleTicket` / `refundTicketEscrow` 都不接收金额参数）。
+- 钱包上线**之前**创建的工单没有托管记录（接口里的 `funded = false`），
+  它们走完流程**不会发生结算** —— 详情页与验收弹窗都有提示。
+- 对账（三条结果必须都为空）：
+  ```sql
+  -- ① 可用余额 = 流水求和
+  SELECT w.user_id, w.available_amount - COALESCE(SUM(t.amount),0) AS diff
+  FROM user_wallet w LEFT JOIN wallet_transaction t ON t.user_id=w.user_id
+  GROUP BY w.user_id, w.available_amount HAVING diff <> 0;
+  -- ② 冻结额 = 流水里有冻结变动之和
+  SELECT w.user_id, w.frozen_amount - COALESCE(SUM(t.frozen_delta),0) AS diff
+  FROM user_wallet w LEFT JOIN wallet_transaction t ON t.user_id=w.user_id
+  GROUP BY w.user_id, w.frozen_amount HAVING diff <> 0;
+  -- ③ 冻结额 = 仍在托管中的 escrow 之和
+  SELECT w.user_id, w.frozen_amount - COALESCE((
+           SELECT SUM(e.amount) FROM ticket_escrow e
+           WHERE e.publisher_id=w.user_id AND e.status='FROZEN'),0) AS diff
+  FROM user_wallet w HAVING diff <> 0;
+  ```
