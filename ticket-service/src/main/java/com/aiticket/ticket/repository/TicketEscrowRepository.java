@@ -41,4 +41,16 @@ public interface TicketEscrowRepository extends JpaRepository<TicketEscrow, Long
             WHERE e.publisherId = :publisherId AND e.status = com.aiticket.ticket.enums.EscrowStatus.FROZEN
             """)
     BigDecimal sumFrozenByPublisher(@Param("publisherId") Long publisherId);
+    /**
+     * 该用户**实际付出去的工单款**合计（个人统计用）。
+     *
+     * <p>只数 {@code SETTLED} 的行：一张单只有一行，金额就是当初结算的金额。
+     * 用流水的 {@code SETTLE_OUT} 也能算（{@code SUM(-frozen_delta)}），
+     * 但那要把符号掰一次，容易写反。
+     */
+    @Query("""
+            SELECT COALESCE(SUM(e.amount), 0) FROM TicketEscrow e
+            WHERE e.publisherId = :publisherId AND e.status = com.aiticket.ticket.enums.EscrowStatus.SETTLED
+            """)
+    BigDecimal sumSettledByPublisher(@Param("publisherId") Long publisherId);
 }

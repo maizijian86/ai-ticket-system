@@ -98,7 +98,10 @@ public class TicketController {
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "10") int pageSize,
             @RequestHeader(value = "X-User-Id", required = false) Long userId) {
-        if (userId == null) userId = 1L;
+        // 缺身份一律 401。这里原来兜底成 1L —— 那等于让没带身份的人以用户 1 的身份读写：
+        // 读到别人的工单与统计，POST /{id}/comment 甚至会用用户 1 的名义发评论。
+        // 网关已经要求登录，这个兜底永远不该生效；改成抛错后，万一网关配置出错也不会静默串号。
+        if (userId == null) throw new BusinessException(401, "请先登录");
         return Result.success(ticketService.listMyTickets(userId, page, pageSize));
     }
 
@@ -112,7 +115,10 @@ public class TicketController {
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "10") int pageSize,
             @RequestHeader(value = "X-User-Id", required = false) Long userId) {
-        if (userId == null) userId = 1L;
+        // 缺身份一律 401。这里原来兜底成 1L —— 那等于让没带身份的人以用户 1 的身份读写：
+        // 读到别人的工单与统计，POST /{id}/comment 甚至会用用户 1 的名义发评论。
+        // 网关已经要求登录，这个兜底永远不该生效；改成抛错后，万一网关配置出错也不会静默串号。
+        if (userId == null) throw new BusinessException(401, "请先登录");
         return Result.success(ticketService.listMyAcceptedTickets(userId, page, pageSize));
     }
 
@@ -158,7 +164,10 @@ public class TicketController {
                                          @Valid @RequestBody AddCommentRequest request,
                                          @RequestHeader(value = "X-User-Id", required = false) Long userId,
                                          @RequestHeader(value = "X-User-Name", required = false) String username) {
-        if (userId == null) userId = 1L;
+        // 缺身份一律 401。这里原来兜底成 1L —— 那等于让没带身份的人以用户 1 的身份读写：
+        // 读到别人的工单与统计，POST /{id}/comment 甚至会用用户 1 的名义发评论。
+        // 网关已经要求登录，这个兜底永远不该生效；改成抛错后，万一网关配置出错也不会静默串号。
+        if (userId == null) throw new BusinessException(401, "请先登录");
         if (username == null) username = "anonymous";
         return Result.success(ticketService.addComment(id, request, userId, username));
     }
@@ -245,7 +254,10 @@ public class TicketController {
     public Result<TicketStatsDTO> getStats(
             @RequestHeader(value = "X-User-Id", required = false) Long userId,
             @RequestParam(required = false) Long excludeCreatorId) {
-        if (userId == null) userId = 1L;
+        // 缺身份一律 401。这里原来兜底成 1L —— 那等于让没带身份的人以用户 1 的身份读写：
+        // 读到别人的工单与统计，POST /{id}/comment 甚至会用用户 1 的名义发评论。
+        // 网关已经要求登录，这个兜底永远不该生效；改成抛错后，万一网关配置出错也不会静默串号。
+        if (userId == null) throw new BusinessException(401, "请先登录");
         return Result.success(ticketService.getStats(userId, excludeCreatorId));
     }
 

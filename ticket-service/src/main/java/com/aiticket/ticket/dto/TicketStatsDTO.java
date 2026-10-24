@@ -49,4 +49,33 @@ public class TicketStatsDTO {
 
     /** 我接的、还没结的单（同上状态集）。大厅「进行中」卡（接单者视角）。 */
     private long activeAsHandler;
+
+    // ---------------- 个人统计页用（2026-10 加） ----------------
+    //
+    // 三个字段都是**查询结果**，不是新存储的列 —— 没有 ALTER TABLE。
+    // 金额读的是钱包域的真实结算记录，不是 SUM(budget)：
+    //   · budget 在"未接单时"发布者可以改，与"当初结算了多少"不是一回事；
+    //   · 钱包上线前创建的历史工单没有托管行、从未结算，用 budget 会把它们算成收入。
+
+    /** 我**发布**的、已完成的数量。个人统计的「发布完成率」分子 */
+    private long completedAsCreator;
+
+    /**
+     * 我**实际收到的**工单款合计（真钱）。
+     *
+     * <p>= `SUM(wallet_transaction.amount) WHERE user_id=我 AND type='SETTLE_IN'`。
+     * `SETTLE_IN` 是"钱进我可用余额"的唯一动作，一笔一条，天然排除历史工单。
+     *
+     * <p>注意：这是**钱包余额里**的钱，不是银行卡；不可提现。
+     */
+    private java.math.BigDecimal settledIncome;
+
+    /**
+     * 我**实际付出去的**工单款合计（真钱）。
+     *
+     * <p>= `SUM(ticket_escrow.amount) WHERE publisher_id=我 AND status='SETTLED'`。
+     * 优于用流水的 `SETTLE_OUT` 反推：一张单只有一行 SETTLED，金额就是结算金额，
+     * 而且不用掰符号（`SETTLE_OUT` 的 amount 是 0，金额在 frozen_delta 上）。
+     */
+    private java.math.BigDecimal settledPayout;
 }

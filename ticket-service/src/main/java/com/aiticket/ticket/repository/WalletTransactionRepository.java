@@ -45,4 +45,16 @@ public interface WalletTransactionRepository extends JpaRepository<WalletTransac
             String refType, Long refId, Integer escrowRound, WalletTxType type);
 
     List<WalletTransaction> findByRefTypeAndRefIdOrderByIdAsc(String refType, Long refId);
+    /**
+     * 该用户**实际收到的工单款**合计（个人统计用）。
+     *
+     * <p>只数 {@code SETTLE_IN}：那是"钱进我可用余额"的唯一动作。
+     * 不用 {@code SUM(budget)} —— 预算可能被人改过，而且历史工单（钱包上线前创建）
+     * 没有托管、从未结算，用预算会把它们算成收入。
+     */
+    @Query("""
+            SELECT COALESCE(SUM(t.amount), 0) FROM WalletTransaction t
+            WHERE t.userId = :userId AND t.type = com.aiticket.ticket.enums.WalletTxType.SETTLE_IN
+            """)
+    BigDecimal sumSettledIn(@Param("userId") Long userId);
 }

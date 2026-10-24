@@ -16,6 +16,7 @@ import com.aiticket.ticket.repository.FileAttachmentRepository;
 import com.aiticket.ticket.repository.TicketCommentRepository;
 import com.aiticket.ticket.repository.TicketEscrowRepository;
 import com.aiticket.ticket.repository.TicketRepository;
+import com.aiticket.ticket.repository.WalletTransactionRepository;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.UserMessage;
@@ -131,6 +132,8 @@ public class TicketService {
      * 放在这里比让两个 service 互相认识更干净。
      */
     private final TicketEscrowRepository ticketEscrowRepository;
+    /** 个人统计要读真实结算流水（SETTLE_IN 合计）。只读，不参与任何资金计算。 */
+    private final WalletTransactionRepository walletTransactionRepository;
     private final FileAttachmentRepository fileAttachmentRepository;
     /** 交付物落阿里云 OSS。放 common 的那份实现，与头像是同一个 AK（见 OssStorage 注释） */
     private final OssStorage ossStorage;
@@ -957,17 +960,32 @@ public class TicketService {
             long handledTotal = ticketRepository.countByHandlerIdAndDeletedAtIsNull(userId);
             long activeAsCreator = ticketRepository.countByCreatorIdAndStatusInAndDeletedAtIsNull(userId, ACTIVE_STATUSES);
             long activeAsHandler = ticketRepository.countByHandlerIdAndStatusInAndDeletedAtIsNull(userId, ACTIVE_STATUSES);
+            // 个人统计页用（2026-10）：数量 + 两个真实结算金额。
+            // 金额读钱包域，不读 budget —— 预算可被改，且历史工单从未结算。
+            long completedAsCreator = ticketRepository.countByCreatorIdAndStatusAndDeletedAtIsNull(userId, TicketStatus.COMPLETED);
+            BigDecimal settledIncome = zeroIfNull(walletTransactionRepository.sumSettledIn(userId));
+            BigDecimal settledPayout = zeroIfNull(ticketEscrowRepository.sumSettledByPublisher(userId));
             return new TicketStatsDTO(open, accepted, pendingApproval, completed,
                     pendingApprovalAsCreator, completedAsParticipant,
-                    createdTotal, handledTotal, activeAsCreator, activeAsHandler);
+                    createdTotal, handledTotal, activeAsCreator, activeAsHandler,
+                    completedAsCreator, settledIncome, settledPayout);
         } else {
             // Global stats —— 没有"我"，四个新字段只能是 0（它们是纯个人口径的）。
             long accepted = ticketRepository.countByStatusAndDeletedAtIsNull(TicketStatus.ACCEPTED);
             long pendingApproval = ticketRepository.countByStatusAndDeletedAtIsNull(TicketStatus.PENDING_APPROVAL);
             long completed = ticketRepository.countByStatusAndDeletedAtIsNull(TicketStatus.COMPLETED);
             return new TicketStatsDTO(open, accepted, pendingApproval, completed,
-                    pendingApproval, completed, 0L, 0L, 0L, 0L);
+                    pendingApproval, completed, 0L, 0L, 0L, 0L,
+                    0L, BigDecimal.ZERO, BigDecimal.ZERO);
         }
+    }
+
+    /**
+     * SUM 在"一行都没有"时返回 null，而 DTO 的 BigDecimal 字段给前端 null 会显示成空白。
+     * 统一在这里兜成 0，别让每个调用点自己判。
+     */
+    private static BigDecimal zeroIfNull(BigDecimal value) {
+        return value == null ? BigDecimal.ZERO : value;
     }
 
     private Specification<Ticket> buildSpecification(TicketQueryRequest query) {
