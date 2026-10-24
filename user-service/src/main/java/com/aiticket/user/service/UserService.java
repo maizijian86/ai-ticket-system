@@ -108,7 +108,9 @@ public class UserService {
         // 注册时随机发一个默认头像。发在这儿而不是"读的时候兜底"，是因为头像一旦定下
         // 就不该再变 —— 若在 toDTO 里对 NULL 现算，同一个用户每次查出来的头像都不一样。
         user.setAvatarUrl(randomDefaultAvatar());
-        user.setRole(role != null ? role : Role.USER);
+        // 兜底改成 HANDLER：USER 已从枚举删除，而 HANDLER 是注册页两个选项里更主动的那一侧
+        // （能接单），也与「存量 USER 账号统一迁到 HANDLER」的口径一致。
+        user.setRole(role != null ? role : Role.HANDLER);
         user.setStatus("active");
         user.setGithubUsername(request.getGithubUsername());
         user.setGithubRepos(request.getGithubRepos());

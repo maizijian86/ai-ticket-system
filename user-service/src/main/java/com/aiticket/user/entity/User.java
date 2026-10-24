@@ -45,7 +45,11 @@ public class User extends BaseEntity {
 
     @Enumerated(EnumType.STRING)
     @Column(length = 20)
-    private Role role = Role.USER;
+    /**
+     * 默认接单者。注册接口总是显式传角色（见 UserService 的 SELF_REGISTERABLE_ROLES），
+     * 这里只是兜底；2026-10 移除 USER 之后兜底值改成 HANDLER。
+     */
+    private Role role = Role.HANDLER;
 
     @Column(length = 20)
     private String status = "active";
