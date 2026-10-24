@@ -10,9 +10,11 @@ import com.aiticket.ticket.dto.*;
 import com.aiticket.ticket.entity.FileAttachment;
 import com.aiticket.ticket.entity.Ticket;
 import com.aiticket.ticket.entity.TicketComment;
+import com.aiticket.ticket.enums.EscrowStatus;
 import com.aiticket.ticket.enums.MembershipPlan;
 import com.aiticket.ticket.repository.FileAttachmentRepository;
 import com.aiticket.ticket.repository.TicketCommentRepository;
+import com.aiticket.ticket.repository.TicketEscrowRepository;
 import com.aiticket.ticket.repository.TicketRepository;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
@@ -113,6 +115,22 @@ public class TicketService {
      * 依赖方向也安全 —— MembershipService 不认识 TicketService，不构成环。
      */
     private final MembershipService membershipService;
+    /**
+     * 资金托管。发布冻结、验收结算、关闭退回、重开重托管都要与工单状态变更
+     * 在**同一个本地事务**里，所以是直接注入本服务、在同一事务内调用，
+     * 不是发事件也不是跨服务调用。
+     *
+     * <p>依赖方向安全：WalletService 只认识仓库，不认识 TicketService。
+     * 它内部会自己读一次工单（结算时要拿接单人），那是仓库级读取，不构成环。
+     */
+    private final WalletService walletService;
+    /**
+     * 只用来判断"这张单有没有托管过"（DTO 的 funded 标记）。
+     * 数据访问的一个例外：正常应该包在 WalletService 里，但那会让
+     * WalletService 反过来依赖 TicketDTO。这个字段的读取是只读且无侧效应，
+     * 放在这里比让两个 service 互相认识更干净。
+     */
+    private final TicketEscrowRepository ticketEscrowRepository;
     private final FileAttachmentRepository fileAttachmentRepository;
     /** 交付物落阿里云 OSS。放 common 的那份实现，与头像是同一个 AK（见 OssStorage 注释） */
     private final OssStorage ossStorage;
@@ -140,6 +158,9 @@ public class TicketService {
         // 开发者需求字段
         ticket.setProjectType(request.getProjectType());
         ticket.setTechStack(request.getTechStack());
+        // 预算现在**必填且为整数元**（1 ~ 50000）。这不是格式刁难：预算是托管金额，
+        // 没有金额就没有可冻结的东西，工单完成时也就没有钱可结算。
+        WalletService.requireValidAmount(request.getBudget(), "预算");
         ticket.setBudget(request.getBudget());
         ticket.setDeadline(request.getDeadline());
         ticket.setDetailedRequirements(request.getDetailedRequirements());
@@ -160,6 +181,14 @@ public class TicketService {
                 .orElse(false));
 
         ticket = ticketRepository.save(ticket);
+
+        // 冻结预算 —— 与工单落库在**同一个事务**里，任一步失败一起回滚，
+        // 不会出现"钱冻住了但工单没建出来"。
+        //
+        // 必须冻结而不是"只在完成时扣款"：如果只校验余额，用户可以用同一笔钱连发
+        // 任意多张单（余额列在两次校验之间没有任何变化），最终只有第一张能扣成功，
+        // 其余接单者白干。冻结之后"钱一定在"，结算就是纯粹的本地事务，永远不会失败。
+        walletService.freezeForTicket(creatorId, ticket.getId(), ticket.getBudget());
 
         if (prepayAi) {
             aiQuotaService.prepaySlot(ticket.getId(), creatorId);
@@ -183,7 +212,12 @@ public class TicketService {
     public TicketDTO getTicket(Long id, Long viewerId) {
         Ticket ticket = ticketRepository.findById(id)
                 .orElseThrow(() -> new BusinessException(404, "Ticket not found"));
-        return toDTO(ticket, true, canSeeInternalComments(ticket, viewerId));
+        TicketDTO dto = toDTO(ticket, true, canSeeInternalComments(ticket, viewerId));
+        // 单条查询才填 funded（列表不填，免得每行多一次查询）。
+        // 用 maxRound 一次查询就够：托管过任意一轮就说明这张单走过资金流程。
+        // 历史单（钱包上线前创建）没有任何托管行 → false，走流程不会结算，前端要提示。
+        dto.setFunded(ticketEscrowRepository.maxRound(id) > 0);
+        return dto;
     }
 
     /**
@@ -321,8 +355,24 @@ public class TicketService {
         if (request.getTechStack() != null) {
             ticket.setTechStack(request.getTechStack());
         }
+        // 预算：**只有还没人接单时才能改**，且改的是"托管金额"，不是随便改个数字。
+        //   · 加钱 → 差额再冻结，余额不足整笔编辑失败（抛 402，不要把异常吞掉去
+        //     "部分保存"，否则用户会看到标题改了、预算没改的错位状态）
+        //   · 减钱 → 差额退回可用余额
+        //   · 值没变 → 空操作（adjustEscrow 里差额为 0 直接 return，天然幂等）
+        // 已接单后金额锁死到结算为止：此时改金额会让已投入工作的接单者失去预期，
+        // 也让"该结算多少"变得可争议。
         if (request.getBudget() != null) {
-            ticket.setBudget(request.getBudget());
+            boolean budgetChanged = ticket.getBudget() == null
+                    || request.getBudget().compareTo(ticket.getBudget()) != 0;
+            if (budgetChanged) {
+                if (ticket.getStatus() != TicketStatus.OPEN || ticket.getHandlerId() != null) {
+                    throw new BusinessException(400, "已有接单人，不能再修改预算");
+                }
+                WalletService.requireValidAmount(request.getBudget(), "预算");
+                walletService.adjustEscrow(id, request.getBudget());
+                ticket.setBudget(request.getBudget());
+            }
         }
         if (request.getDeadline() != null) {
             ticket.setDeadline(request.getDeadline());
@@ -341,6 +391,9 @@ public class TicketService {
         Ticket ticket = requireCreator(id, userId, "删除该工单");
         ticket.softDelete();
         ticketRepository.save(ticket);
+        // 删单等于放弃这张单：托管中的预算退回可用余额。
+        // 没有托管资金（钱包上线前创建的历史单）时这里只记一行日志，不抛异常。
+        walletService.refundTicketEscrow(id);
         log.info("Ticket deleted: id={}", id);
     }
 
@@ -418,6 +471,10 @@ public class TicketService {
         ticket.setStatus(TicketStatus.CLOSED);
         ticket.setClosedAt(LocalDateTime.now());
         ticket = ticketRepository.save(ticket);
+
+        // 中途叫停 = 这张单不做了，托管中的预算全额退回发布者可用余额。
+        // 排在 save 之后只是习惯，两者在同一事务里，先后不影响原子性。
+        walletService.refundTicketEscrow(ticketId);
 
         log.info("Ticket closed: id={}", ticketId);
         return toDTO(ticket);
@@ -634,6 +691,16 @@ public class TicketService {
             ticket.setRejectionReason(null);
             chatService.deleteByTicketId(ticketId);
             memoryManager.chatScopeAndClear(ticketId);
+            // 资金：托管额从发布者的冻结转入接单者可用余额。
+            //
+            // 先落库再结算：settleTicket 会重新读工单拿 handlerId，此时状态已是 COMPLETED，
+            // 读到的数据是本次事务内的最新值（JPA 一级缓存，无需额外 refresh）。
+            //
+            // 金额由 settleTicket **内部**从 ticket_escrow 读，这里没有、也不该有金额参数 ——
+            // 发布者在未接单时可以改预算，改完之后 ticket.getBudget() 与已冻结金额不是一回事，
+            // 读错就会少结算。
+            ticket = ticketRepository.save(ticket);
+            walletService.settleTicket(ticketId);
             log.info("Ticket approved and completed: id={}", ticketId);
         } else {
             if (reason == null || reason.isBlank()) {
@@ -641,10 +708,11 @@ public class TicketService {
             }
             ticket.setStatus(TicketStatus.REJECTED);
             ticket.setRejectionReason(reason);
+            // 驳回不动钱：工单还在流程里（等接单者返工），托管继续冻结
             log.info("Ticket rejected: id={}, reason={}", ticketId, reason);
+            ticket = ticketRepository.save(ticket);
         }
 
-        ticket = ticketRepository.save(ticket);
         return toDTO(ticket);
     }
 
@@ -654,6 +722,17 @@ public class TicketService {
 
         if (!ARCHIVED_STATUSES.contains(ticket.getStatus())) {
             throw new BusinessException(400, "只有已完成或已关闭的工单可以重新开放");
+        }
+
+        // ⚠️ COMPLETED 是**结算终点，不可重开**。
+        // 验收通过时钱已经从发布者的冻结转给了接单者。重开这张单只有三条路，
+        // 全都不成立：
+        //   1) 从接单者身上扣回来 —— 他可能已经花掉了（余额不足），交易卡死；
+        //   2) 不扣，白送 —— 发布者付了钱、单却没做完，钱要不回来；
+        //   3) 重开后完成不再结算 —— 接单者第二次白干。
+        // 所以只保留 CLOSED → OPEN（那时钱已随关闭退回，可以重新冻结）。
+        if (ticket.getStatus() == TicketStatus.COMPLETED) {
+            throw new BusinessException(400, "已结算的工单不能重新开放");
         }
 
         ticket.setStatus(TicketStatus.OPEN);
@@ -681,7 +760,13 @@ public class TicketService {
         memoryManager.chatScopeAndClear(ticketId);
         ticket = ticketRepository.save(ticket);
 
-        log.info("Ticket reopened: id={}", ticketId);
+        // 资金：关闭时托管已经退回，重开等于重新下单，必须再冻一次（round+1）。
+        // 余额不足会抛 402 —— 这时整个重开回滚，工单仍是 CLOSED，不会出现
+        // "单重开了但没钱押着"的状态。
+        walletService.freezeForTicket(ticket.getCreatorId(), ticketId, ticket.getBudget());
+
+        log.info("Ticket reopened: id={}, 重新托管 {} 元", ticketId,
+                ticket.getBudget() == null ? "-" : ticket.getBudget().toPlainString());
         return toDTO(ticket);
     }
 

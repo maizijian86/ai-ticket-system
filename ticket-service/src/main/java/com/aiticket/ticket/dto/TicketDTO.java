@@ -112,6 +112,19 @@ public class TicketDTO {
     // 是否在大厅显示
     private Boolean isVisible;
 
+    /**
+     * 这张单是否**有资金托管**（创建时冻结过预算）。
+     *
+     * <p>钱包功能上线**之前**创建的工单没有托管记录、也没冻结过钱，它们走完流程时
+     * 不会发生任何结算（见 WalletService.settleTicket 的"无托管则跳过"）。
+     * 前端据此在详情页/验收弹窗提示"此工单创建于资金功能上线前，不涉及资金结算"，
+     * 免得用户以为"我付了预算怎么没扣钱"或者"我干完了怎么没收到钱"。
+     *
+     * <p>只在该工单的单条查询里填充（列表接口不填，避免每行多一次查询）：
+     * {@code null} 表示"未查"，{@code false} 才是"确实没有托管"。
+     */
+    private Boolean funded;
+
     // Timestamps
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
