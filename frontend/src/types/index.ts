@@ -186,6 +186,16 @@ export interface TicketDTO {
   // 这里原有 acceptedBy / acceptedByName —— 后端已删除这两个字段，
   // 保留它们会让 TS 静默通过 `ticket.acceptedByName`，运行时永远是 undefined。
   isVisible?: boolean
+  /**
+   * 这张单是否**有资金托管**（发布时冻结过预算）。
+   *
+   * 钱包功能上线前创建的工单没有托管，走完流程也**不会发生结算**，
+   * 详情页据此提示"此工单创建于资金功能上线前，不涉及资金结算"。
+   *
+   * 后端只在这个单条详情接口里填它（列表不填），所以：
+   * `undefined` = 未知（列表里拿到的对象）、`false` = 确实没有托管。
+   */
+  funded?: boolean
 }
 
 export interface Attachment {
@@ -626,4 +636,59 @@ export interface MembershipPayDTO {
   outTradeNo: string
   amount: number
   payUrl: string
+}
+
+// ---------------------------------------------------------------- 钱包
+/**
+ * 我的钱包。金额都是**整数元**（后端只允许整数，不支持角/分）。
+ *
+ * `availableAmount` 能用来发布工单；`frozenAmount` 是已随在途工单押住的；
+ * 判"够不够发这张单"必须用前者，不能用 totalAmount。
+ */
+export interface WalletDTO {
+  availableAmount: number
+  frozenAmount: number
+  totalAmount: number
+  /** 单笔充值上下限，由后端下发 —— 前端不写死，改额度时不用发前端 */
+  minRecharge: number
+  maxRecharge: number
+}
+
+/** 充值订单 */
+export interface WalletOrderDTO {
+  id: number
+  outTradeNo: string
+  amount: number
+  status: 'PENDING' | 'PAID' | 'CLOSED'
+  /** 支付宝交易号，未到账时为 null */
+  tradeNo?: string | null
+  paidAt?: string | null
+  createdAt?: string | null
+}
+
+/** 充值下单出参（与 MembershipPayDTO 同构，但刻意分开：以后加字段互不牵连） */
+export interface WalletPayDTO {
+  orderId: number
+  outTradeNo: string
+  amount: number
+  payUrl: string
+}
+
+/**
+ * 钱包流水。
+ *
+ * 注意 `amount` 是**可用余额**的变动、`frozenDelta` 是冻结额的变动：
+ * 工单结算那条流水的 `amount` 是 0、金额在 `frozenDelta` 上 —— 不是 bug，
+ * 发布者的钱在"发布冻结"那一步就已经从可用余额划走了。
+ */
+export interface WalletTxDTO {
+  id: number
+  type: 'RECHARGE' | 'FREEZE' | 'ESCROW_ADJUST' | 'REFUND' | 'SETTLE_OUT' | 'SETTLE_IN'
+  amount: number
+  frozenDelta: number
+  balanceAfter: number
+  refType?: 'TICKET' | 'WALLET_ORDER' | null
+  refId?: number | null
+  remark?: string | null
+  createdAt?: string | null
 }

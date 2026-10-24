@@ -111,6 +111,15 @@ export default function TicketEdit() {
     return () => window.clearTimeout(t)
   }, [blocked, navigate, ticketId])
 
+  /*
+    预算锁定的判据与后端一致：**只要有人接单就锁**（不止 ACCEPTED，还有待验收/被驳回）。
+    这些状态下 handlerId 都已经有值，所以直接看它。
+
+    为什么不用「状态不是 OPEN」来判：CLOSED 的单本来就不能编辑（ARCHIVED_STATUSES），
+    走不到这里；而 REJECTED 的单 handlerId 还在、钱还冻着，同样不该改金额。
+  */
+  const budgetLocked = Boolean(ticket?.handlerId)
+
   function setField<K extends keyof TicketFormValues>(key: K, value: TicketFormValues[K]) {
     setValues((v) => (v ? { ...v, [key]: value } : v))
     setErrors((e) => (e[key] ? { ...e, [key]: undefined } : e))
@@ -118,7 +127,10 @@ export default function TicketEdit() {
 
   async function handleSubmit() {
     if (!values) return
-    // 编辑页不要求项目类型：存量单可能本来就没有，逼用户补一个才能保存不合理
+    // 编辑页不要求项目类型：存量单可能本来就没有，逼用户补一个才能保存不合理。
+    //
+    // 这里**不传** availableBalance：编辑页不取钱包余额，而且"加预算差额够不够"
+    // 依赖的是此前的冻结额，前端算不准 —— 交给服务端返回 402（带明确差额文案）。
     const found = validateTicketForm(values, { requireProjectType: false })
     setErrors(found)
     if (Object.keys(found).length > 0) {
@@ -203,6 +215,17 @@ export default function TicketEdit() {
           errors={errors}
           onChange={setField}
           requireProjectType={false}
+          /*
+            预算只有"还没人接"时能改：改的是托管金额，加钱要再冻差额（余额不足会整笔
+            编辑失败），减钱会把差额退回可用余额。接了单之后金额锁死到结算 ——
+            后端也会拒（400「已有接单人，不能再修改预算」），这里禁用只是提前告知。
+          */
+          budgetDisabled={budgetLocked}
+          budgetHint={
+            budgetLocked
+              ? '已有接单人，预算不可修改（验收通过后按此金额结算）'
+              : '整数元，改预算会同步调整托管金额'
+          }
         />
       </div>
 

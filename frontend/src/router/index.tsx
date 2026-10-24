@@ -100,6 +100,13 @@ export const router = createBrowserRouter([
       { path: 'membership/result', loader: requireAuthLoader, lazy: page(() => import('@/pages/membership/MembershipResult')) },
       { path: 'profile', loader: requireAuthLoader, lazy: page(() => import('@/pages/profile/Profile')) },
 
+      // 钱包。两条都必须登录：钱包/流水是按网关注入的身份查的，
+      // 结果页要查自己那笔充值单（后端会校验归属，未登录直接 401）。
+      { path: 'wallet', loader: requireAuthLoader, lazy: page(() => import('@/pages/wallet/Wallet')) },
+      // 支付宝充值回调后浏览器跳回的地址（AlipayProperties.walletReturnUrl）。
+      // 单号由支付宝以 out_trade_no 追加在 query 上。
+      { path: 'wallet/result', loader: requireAuthLoader, lazy: page(() => import('@/pages/wallet/WalletResult')) },
+
       { path: 'admin/users', loader: requireAdminLoader, lazy: page(() => import('@/pages/admin/AdminUsers')) },
       { path: 'admin/stats', loader: requireAdminLoader, lazy: page(() => import('@/pages/admin/AdminStats')) },
 

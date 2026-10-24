@@ -292,7 +292,16 @@ export const EMPTY_TICKET_FORM: TicketFormValues = {
 }
 
 /** 前端校验。只做后端不做或做了也不好提示的那几条（长度/必填）。 */
-export function validateTicketForm(v: TicketFormValues, opts: { requireProjectType?: boolean } = {}) {
+export function validateTicketForm(
+  v: TicketFormValues,
+  opts: {
+    requireProjectType?: boolean
+    /** 钱包可用余额（整数元）。传了就校验"不超余额"，不传则跳过（编辑页已接单时不校验） */
+    availableBalance?: number
+    /** 单笔上限（元）。后端 maxRecharge 同源下发，这里只做提前提示 */
+    maxBudget?: number
+  } = {}
+) {
   const errors: Partial<Record<keyof TicketFormValues, string>> = {}
 
   if (!v.title.trim()) errors.title = '请填写项目名称'
@@ -302,8 +311,27 @@ export function validateTicketForm(v: TicketFormValues, opts: { requireProjectTy
 
   if (opts.requireProjectType && !v.projectType) errors.projectType = '请选择项目类型'
 
-  if (v.budget.trim() && !/^\d+(\.\d{1,2})?$/.test(v.budget.trim())) {
-    errors.budget = '预算只能填数字，最多两位小数'
+  /*
+    预算规则与后端**完全一致**：必填、整数元、1 ~ 50000、不超过可用余额。
+
+    ⚠️ 这里说的是"不支持角、分"，不是"最多两位小数" —— 后端
+    `stripTrailingZeros().scale() > 0` 会拒掉 1.5 和 1.50，只接受整数。
+    前端要是放过了，用户会先看到"提交成功"再收到一个 400，体验很差。
+  */
+  const raw = v.budget.trim()
+  if (!raw) {
+    errors.budget = '请填写预算（发布时将从余额中冻结）'
+  } else if (!/^\d+$/.test(raw)) {
+    errors.budget = '预算只能填整数元（不支持角、分）'
+  } else {
+    const n = Number(raw)
+    if (n < 1) errors.budget = '预算最少 1 元'
+    else if (opts.maxBudget != null && n > opts.maxBudget) {
+      errors.budget = `预算最多 ${opts.maxBudget} 元`
+    } else if (opts.availableBalance != null && n > opts.availableBalance) {
+      const shortfall = n - opts.availableBalance
+      errors.budget = `余额不足，还差 ${shortfall} 元（可用 ¥${opts.availableBalance}），请先充值`
+    }
   }
 
   return errors
@@ -336,13 +364,22 @@ export function TicketFormSections({
   errors,
   onChange,
   requireProjectType = true,
-  aiCredit
+  aiCredit,
+  budgetDisabled = false,
+  budgetHint
 }: {
   values: TicketFormValues
   errors: Partial<Record<keyof TicketFormValues, string>>
   onChange: <K extends keyof TicketFormValues>(key: K, value: TicketFormValues[K]) => void
   /** 发布页要求选类型；编辑页允许留空（存量单可能没有） */
   requireProjectType?: boolean
+  /**
+   * 预算框是否禁用。编辑页在「已有接单人」时传 true ——
+   * 那时金额已锁死到结算，改预算会让已投入工作的接单者失去预期。
+   */
+  budgetDisabled?: boolean
+  /** 预算框下方的提示语。发布页可以在这里显示"当前余额 ¥X" */
+  budgetHint?: ReactNode
   /** 只有发布页传：AI 额度预附那一节 */
   aiCredit?: {
     checked: boolean
@@ -440,18 +477,31 @@ export function TicketFormSections({
       {/* ── 03 预算与周期 ── */}
       <FormSection index="03" en="Budget &amp; Timeline" zh="预算与周期">
         <div className="grid gap-5 sm:grid-cols-2">
-          <Field label="预算" error={errors.budget} hint="元，可留空">
+          {/*
+            预算现在是**必填项**，而且提交时会被冻结：
+            发布工单 = 从可用余额里扣出这一笔押住，验收通过才结算给接单者，
+            关闭/删除会退回。所以这里的提示语必须说清"钱会被扣走"，
+            不能只写"必填"—— 用户会以为只是个报价数字。
+          */}
+          <Field
+            label="预算（必填）"
+            error={errors.budget}
+            hint={
+              budgetHint ?? '整数元，发布时从余额冻结，验收通过后结算给接单者'
+            }
+          >
             <div className="relative">
               <span className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-sm text-muted-foreground">
                 ¥
               </span>
               <Input
-                inputMode="decimal"
+                inputMode="numeric"
                 value={values.budget}
+                disabled={budgetDisabled}
                 onChange={(e) => onChange('budget', e.target.value)}
-                placeholder="0.00"
+                placeholder="例如 500"
                 aria-invalid={Boolean(errors.budget)}
-                className="h-10 pl-7 text-sm"
+                className="h-10 pl-7 text-sm disabled:cursor-not-allowed disabled:opacity-60"
               />
             </div>
           </Field>

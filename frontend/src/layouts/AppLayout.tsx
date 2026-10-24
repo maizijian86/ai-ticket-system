@@ -263,6 +263,9 @@ export default function AppLayout() {
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
                     <DropdownMenuItem onClick={() => navigate('/profile')}>个人主页</DropdownMenuItem>
+                    {/* 钱包放在「个人主页」下面、「开通会员」上面：
+                        它是"我的资产"的一部分，但比会员常用得多（发布工单要先充值）。 */}
+                    <DropdownMenuItem onClick={() => navigate('/wallet')}>我的钱包</DropdownMenuItem>
                     <DropdownMenuItem onClick={() => navigate('/membership')}>开通会员</DropdownMenuItem>
                     {/*
                       分隔线把「去某个页面」和「退出」分开：退出是不可逆的副作用，

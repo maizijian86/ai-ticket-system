@@ -15,6 +15,7 @@ import {
 } from '@/components/ticket/TicketForm'
 import { ticketApi } from '@/api/ticket'
 import { membershipApi } from '@/api/membership'
+import { walletApi } from '@/api/wallet'
 import { useTicketStore } from '@/stores/ticketStore'
 import { buildConsumeConfirmText } from '@/utils/ai-quota'
 
@@ -50,6 +51,36 @@ export default function TicketCreate() {
   const [remaining, setRemaining] = useState<number | null>(null)
   const [nextExpireAt, setNextExpireAt] = useState<string | null>(null)
   const [useAiCredit, setUseAiCredit] = useState(false)
+
+  /*
+    ── 钱包余额：发布时预算会被冻结 ──
+    这张单的预算会**从可用余额里扣出并押住**（可用 → 冻结），验收通过才结算给接单者。
+    所以发布前必须让用户看见"我有多少钱、这笔要押多少"，否则他会填一个 5000 的预算、
+    点提交、然后收到一个 402 —— 而 402 出现在提交之后，前面没有任何提示。
+
+    读不到余额时不要把余额当成 0：那会让人以为"我一分钱没有"却又能提交。
+    用 null 表示未知，校验时跳过余额那一条，交给服务端兜底。
+  */
+  const [balance, setBalance] = useState<number | null>(null)
+  const [maxBudget, setMaxBudget] = useState<number | undefined>(undefined)
+
+  useEffect(() => {
+    let alive = true
+    walletApi
+      .me()
+      .then((w) => {
+        if (!alive) return
+        setBalance(w.availableAmount)
+        setMaxBudget(w.maxRecharge)
+      })
+      .catch(() => {
+        // 静默降级：不弹错（进发布页就报错太吵），余额未知时只做服务端校验
+        if (alive) setBalance(null)
+      })
+    return () => {
+      alive = false
+    }
+  }, [])
 
   useEffect(() => {
     let alive = true
@@ -98,10 +129,18 @@ export default function TicketCreate() {
   }
 
   async function handleSubmit() {
-    const found = validateTicketForm(values, { requireProjectType: true })
+    const found = validateTicketForm(values, {
+      requireProjectType: true,
+      // 余额未知（接口失败）时不校验这一条，交给服务端兜底 ——
+      // 宁可在提交后收到一个明确的 402，也不要因为读不到余额就把人挡在门外
+      availableBalance: balance ?? undefined,
+      maxBudget
+    })
     setErrors(found)
     if (Object.keys(found).length > 0) {
-      toast.error('还有必填项没填完')
+      // 余额不足要单独说清楚，它对用户是"去充值"的行动项，不是"填错了"
+      if (found.budget?.includes('余额不足')) toast.error(found.budget)
+      else toast.error('还有必填项没填完')
       return
     }
 
@@ -149,6 +188,28 @@ export default function TicketCreate() {
           values={values}
           errors={errors}
           onChange={setField}
+          budgetHint={
+            balance == null ? (
+              '整数元。发布时会从余额冻结，验收通过后结算给接单者'
+            ) : (
+              <>
+                当前可用余额 <span className="font-medium text-foreground">¥{balance.toFixed(2)}</span>
+                {' · 发布时冻结，验收通过才结算给接单者'}
+                {balance === 0 && (
+                  <>
+                    {' · '}
+                    <button
+                      type="button"
+                      onClick={() => navigate('/wallet')}
+                      className="cursor-pointer underline underline-offset-2 hover:text-foreground"
+                    >
+                      去充值
+                    </button>
+                  </>
+                )}
+              </>
+            )
+          }
           aiCredit={{
             checked: useAiCredit,
             onCheckedChange: setUseAiCredit,

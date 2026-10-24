@@ -475,6 +475,20 @@ function TicketHeader({ ticket, myId }: { ticket: TicketDTO; myId: number | unde
         />
         {ticket.handlerName && <MetaItem label="接单" value={ticket.handlerName} />}
       </dl>
+
+      {/*
+        历史工单提示：钱包上线**之前**创建的工单没有资金托管记录（`funded === false`），
+        走完流程也不会发生任何结算。不提示的话两头都会困惑 ——
+        发布者以为"预算怎么没扣"，接单者以为"做完了怎么没收到钱"。
+
+        `undefined`（列表里拿到的对象，后端没填）不显示，避免误报。
+      */}
+      {ticket.funded === false && (
+        <p className="mt-3 rounded-lg border border-border bg-muted/50 px-3 py-2 text-xs leading-5 text-muted-foreground">
+          这张工单创建于钱包功能上线前，<strong className="font-medium">不涉及资金结算</strong>
+          —— 完成后不会发生转账。
+        </p>
+      )}
     </header>
   )
 }

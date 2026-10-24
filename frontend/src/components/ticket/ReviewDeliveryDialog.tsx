@@ -144,6 +144,31 @@ export function ReviewDeliveryDialog({
             <strong className="font-semibold text-foreground">验收通过这张单就完成了</strong>
             ；驳回要写清楚哪里不合格，接单者会带着这条理由重新交付。
           </DialogDescription>
+
+          {/*
+            资金提示必须出现在「通过」按钮上方。
+            通过 = 结算：预算从发布者的冻结里划给接单者，**不可撤销**，
+            而且之后这张单不能再「重新开放」（钱已经在对方账上了）。
+
+            历史工单（`funded === false`，钱包上线前创建的）没有托管记录，
+            通过时不会发生任何转账 —— 不说清的话，接单者会以为"干完了怎么没收到钱"，
+            发布者会以为"怎么没扣我钱"。
+          */}
+          {ticket.funded === false ? (
+            <p className="mt-3 rounded-lg border border-amber-300/60 bg-amber-50/70 p-3 text-xs leading-5 text-amber-800">
+              这张工单创建于资金功能上线前，<strong className="font-semibold">不涉及资金结算</strong>，
+              验收通过不会发生任何转账。
+            </p>
+          ) : (
+            <p className="mt-3 rounded-lg border border-amber-300/60 bg-amber-50/70 p-3 text-xs leading-5 text-amber-800">
+              验收通过后，
+              <strong className="font-semibold">
+                {ticket.budget != null ? `¥${ticket.budget.toFixed(2)} ` : ''}
+              </strong>
+              将从你的托管余额结算给接单者，
+              <strong className="font-semibold">不可撤销</strong>，且这张工单之后不能再重新开放。
+            </p>
+          )}
         </DialogHeader>
 
         <div className="flex flex-col gap-2">

@@ -52,6 +52,8 @@ export {
   Flag,           // EP: Finished（统计页的"已完成"用的是旗子）
   House,          // EP: HomeFilled（404 页的"回到首页"）
   ShieldCheck,    // EP: Lock/UserFilled 之间（管理员区页头用）
+  Wallet,         // EP: Wallet（钱包页与"我的钱包"入口）
+  Receipt,        // EP: Tickets（充值记录/流水）
   Users,          // EP: User（用户管理页头）
   ChartColumn,    // EP: DataLine（统计页头）
   Trash2          // EP: Delete（用户管理页的删除）
