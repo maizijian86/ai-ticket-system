@@ -551,3 +551,82 @@ CREATE TABLE membership_order (
     UNIQUE KEY uk_order_out_trade_no (out_trade_no),
     KEY idx_order_user (user_id, status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='会员订单';
+
+-- ==================== 钱包 / 充值 / 工单资金托管（ticket-service） ====================
+-- 与实体 com.aiticket.ticket.entity.UserWallet / TicketEscrow / WalletOrder / WalletTransaction
+-- 一一对应。设计文档见 docs/开发文档-钱包与余额流转.md。
+--
+-- 两个必须守住的不变量（对账 SQL 会查）：
+--   1) user_wallet.available_amount = SUM(wallet_transaction.amount)  -- 按 user_id 分组
+--   2) user_wallet.frozen_amount    = SUM(ticket_escrow.amount WHERE status='FROZEN')
+--
+-- 金额规则：**只允许整数元**（1 ~ 50000），故各金额列都带 CHECK (x = FLOOR(x)) 兜底。
+-- 列类型仍用 DECIMAL(12,2)，将来若要支持角/分，去掉 CHECK 即可，不必改表结构。
+
+-- 钱包：一人一行，懒创建（第一次看余额时插入）
+CREATE TABLE user_wallet (
+    user_id          BIGINT        NOT NULL PRIMARY KEY,
+    available_amount DECIMAL(12,2) NOT NULL DEFAULT 0 COMMENT '可用余额',
+    frozen_amount    DECIMAL(12,2) NOT NULL DEFAULT 0 COMMENT '托管中的金额（发布工单冻结）',
+    created_at       DATETIME      DEFAULT CURRENT_TIMESTAMP,
+    updated_at       DATETIME      DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    CONSTRAINT ck_wallet_available CHECK (available_amount >= 0 AND available_amount = FLOOR(available_amount)),
+    CONSTRAINT ck_wallet_frozen    CHECK (frozen_amount    >= 0 AND frozen_amount    = FLOOR(frozen_amount))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户钱包';
+
+-- 工单托管：一张单当前托管多少钱。改预算就改 amount，结算/退款一律读它（不读 ticket.budget）
+CREATE TABLE ticket_escrow (
+    id           BIGINT        AUTO_INCREMENT PRIMARY KEY,
+    ticket_id    BIGINT        NOT NULL,
+    round        INT           NOT NULL DEFAULT 1 COMMENT '第几次托管（重开 +1）',
+    publisher_id BIGINT        NOT NULL,
+    amount       DECIMAL(12,2) NOT NULL COMMENT '当前托管额（随改预算而变）',
+    status       VARCHAR(16)   NOT NULL COMMENT 'FROZEN / REFUNDED / SETTLED',
+    created_at   DATETIME      DEFAULT CURRENT_TIMESTAMP,
+    updated_at   DATETIME      DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_escrow_ticket_round (ticket_id, round),
+    KEY idx_escrow_publisher_status (publisher_id, status),
+    CONSTRAINT ck_escrow_amount CHECK (amount >= 0 AND amount = FLOOR(amount))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='工单资金托管';
+
+-- 充值订单：与 membership_order 同构，单号前缀 WAL
+CREATE TABLE wallet_order (
+    id           BIGINT        AUTO_INCREMENT PRIMARY KEY,
+    user_id      BIGINT        NOT NULL,
+    out_trade_no VARCHAR(64)   NOT NULL COMMENT '商户订单号，WAL + 时间戳 + 6 位随机',
+    amount       DECIMAL(12,2) NOT NULL COMMENT '充值金额(元)',
+    status       VARCHAR(16)   NOT NULL COMMENT 'PENDING / PAID / CLOSED',
+    pay_channel  VARCHAR(20)   NOT NULL COMMENT 'ALIPAY_SANDBOX',
+    trade_no     VARCHAR(64)   DEFAULT NULL COMMENT '支付宝交易号',
+    paid_at      DATETIME      DEFAULT NULL,
+    created_at   DATETIME      DEFAULT CURRENT_TIMESTAMP,
+    updated_at   DATETIME      DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at   DATETIME      DEFAULT NULL,
+    UNIQUE KEY uk_wallet_order_out_trade_no (out_trade_no),
+    KEY idx_wallet_order_user (user_id, status),
+    CONSTRAINT ck_wallet_order_amount CHECK (amount > 0 AND amount = FLOOR(amount))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='钱包充值订单';
+
+-- 流水：纯追加的审计账本。
+-- ref_type=TICKET 时 ref_id=ticket_id；ref_type=WALLET_ORDER 时 ref_id=order_id。
+--
+-- uniq_key 兜住"可能重复执行"的动作（支付宝回调、验收结算），形如
+--   TICKET:57:1:REFUND / TICKET:57:1:SETTLE_OUT / WALLET_ORDER:1:RECHARGE
+-- 改预算（ESCROW_ADJUST）在同一轮里可以有很多条，所以它的 uniq_key 留 NULL ——
+-- MySQL 的唯一索引不约束含 NULL 的行，于是既能挡住重复执行，又不妨碍多次调额。
+CREATE TABLE wallet_transaction (
+    id            BIGINT        AUTO_INCREMENT PRIMARY KEY,
+    user_id       BIGINT        NOT NULL,
+    type          VARCHAR(24)   NOT NULL COMMENT 'RECHARGE/FREEZE/ESCROW_ADJUST/REFUND/SETTLE_OUT/SETTLE_IN',
+    amount        DECIMAL(12,2) NOT NULL COMMENT '可用余额的变动：正=增加, 负=减少',
+    frozen_delta  DECIMAL(12,2) NOT NULL DEFAULT 0 COMMENT '冻结额的变动：正=转入托管, 负=转出',
+    balance_after DECIMAL(12,2) NOT NULL COMMENT '本次变动后的 available_amount，用于对账',
+    ref_type      VARCHAR(16)   DEFAULT NULL COMMENT 'TICKET / WALLET_ORDER',
+    ref_id        BIGINT        DEFAULT NULL,
+    escrow_round  INT           DEFAULT NULL COMMENT '第几次托管（所有 TICKET 流水都填真实轮次，供交叉校验）',
+    remark        VARCHAR(255)  DEFAULT NULL,
+    uniq_key      VARCHAR(80)   DEFAULT NULL COMMENT '幂等键；调额类留 NULL',
+    created_at    DATETIME      DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_wallet_tx_uniq (uniq_key),
+    KEY idx_wallet_tx_user (user_id, created_at DESC)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='钱包流水';

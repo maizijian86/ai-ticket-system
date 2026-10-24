@@ -49,6 +49,9 @@ public class JwtAuthenticationFilter implements GlobalFilter, Ordered {
             "/api/v1/auth/login",
             "/api/v1/auth/refresh",
             "/api/v1/membership/callback",
+        // 钱包充值的支付宝异步通知。**漏了这条就是"钱付了、余额没加、日志一片安静"**：
+        // 回调没有 Authorization，被网关 401 挡在最前面，连请求体都进不了 service
+        "/api/v1/wallet/callback",
             "/health",
             "/actuator/health"
     };

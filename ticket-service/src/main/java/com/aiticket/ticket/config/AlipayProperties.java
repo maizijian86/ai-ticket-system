@@ -44,6 +44,22 @@ public class AlipayProperties {
     private String returnUrl = "http://localhost:3000/membership/result";
 
     /**
+     * **钱包充值**的异步通知地址：natapp 隧道域名 + /api/v1/wallet/callback/alipay。
+     *
+     * <p>为什么单独一个：支付宝会把通知 POST 到**下单那一刻**给它的那个 URL，
+     * 它不知道我们的路由规则。两个业务（会员 / 充值）的订单号前缀不同
+     *（MEM / WAL），但回调处理器只认自己那个前缀，所以入口必须分开，
+     * 否则一笔充值通知会打进会员的处理器、被当成"订单查不到"。
+     *
+     * <p>为空时只有充值不可用（{@link #isWalletConfigured()} 判它），
+     * 会员照常能买 —— 与整体 {@link #isConfigured()} 的降级思路一致。
+     */
+    private String walletNotifyUrl = "";
+
+    /** 充值付款成功后浏览器跳回的地址 */
+    private String walletReturnUrl = "http://localhost:3000/wallet/result";
+
+    /**
      * 关键字段是否齐备。
      *
      * <p>不是启动期校验：没配密钥时服务该能正常跑（其余功能不受影响），
@@ -54,6 +70,16 @@ public class AlipayProperties {
                 && !gatewayUrl.isBlank() && !notifyUrl.isBlank();
     }
 
+    /**
+     * 充值功能的配置是否齐备。
+     *
+     * <p>刻意**不**把它并进 {@link #isConfigured()}：两份配置的启用时间可以不同，
+     * 而且少配一个充值地址不该连累会员购买。
+     */
+    public boolean isWalletConfigured() {
+        return isConfigured() && !walletNotifyUrl.isBlank() && !walletReturnUrl.isBlank();
+    }
+
     /** 缺了哪些字段，拼成一句话给日志/报错用（不打印密钥内容本身） */
     public String missingFields() {
         StringBuilder sb = new StringBuilder();
@@ -62,6 +88,19 @@ public class AlipayProperties {
         if (publicKey.isBlank()) sb.append("public-key ");
         if (gatewayUrl.isBlank()) sb.append("gateway-url ");
         if (notifyUrl.isBlank()) sb.append("notify-url ");
+        return sb.toString().trim();
+    }
+
+    /** 充值缺了哪些字段（只报充值那一项，避免把会员的配置问题混进来） */
+    public String missingWalletFields() {
+        String base = missingFields();
+        if (!walletNotifyUrl.isBlank() && !walletReturnUrl.isBlank()) {
+            return base;
+        }
+        StringBuilder sb = new StringBuilder(base);
+        if (!sb.isEmpty()) sb.append(' ');
+        if (walletNotifyUrl.isBlank()) sb.append("wallet-notify-url ");
+        if (walletReturnUrl.isBlank()) sb.append("wallet-return-url ");
         return sb.toString().trim();
     }
 }

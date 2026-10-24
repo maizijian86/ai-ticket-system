@@ -87,16 +87,33 @@ public class AlipayGateway {
      * @param subject 商品标题，会显示在收银台上
      */
     public String buildPagePayUrl(String outTradeNo, BigDecimal amount, String subject) {
+        return buildPagePayUrl(outTradeNo, amount, subject,
+                properties.getNotifyUrl(), properties.getReturnUrl());
+    }
+
+    /**
+     * 同上，但**显式指定回调与跳回地址** —— 钱包充值走这条路：
+     * 充值的异步通知必须落到 {@code /api/v1/wallet/callback/alipay}，
+     * 不能复用会员那个地址（两个处理器只认自己的单号前缀）。
+     *
+     * @param notifyUrl 异步通知地址（支付宝服务器直接 POST 到这里）
+     * @param returnUrl 付款成功后浏览器跳回的地址
+     */
+    public String buildPagePayUrl(String outTradeNo, BigDecimal amount, String subject,
+                                  String notifyUrl, String returnUrl) {
         Map<String, String> biz = new LinkedHashMap<>();
         biz.put("out_trade_no", outTradeNo);
-        // 金额必须两位小数的字符串："30" 与 "30.00" 在支付宝那边不是一回事
-        biz.put("total_amount", amount.toPlainString());
+        // 金额必须两位小数的字符串："30" 与 "30.00" 在支付宝那边不是一回事。
+        // 我们内部金额是**整数元**（BigDecimal 100），所以这里统一补成 "100.00"。
+        // setScale 用 UNNECESSARY：万一哪天有人塞进来三位小数，直接抛错而不是静默进位到
+        // 一个和订单金额不同的数字（那会导致回调的金额比对失败、钱付了余额不加）。
+        biz.put("total_amount", amount.setScale(2, java.math.RoundingMode.UNNECESSARY).toPlainString());
         biz.put("subject", subject);
         biz.put("product_code", PRODUCT_CODE_PAGE_PAY);
 
         AlipayTradePagePayRequest request = new AlipayTradePagePayRequest();
-        request.setNotifyUrl(properties.getNotifyUrl());
-        request.setReturnUrl(properties.getReturnUrl());
+        request.setNotifyUrl(notifyUrl);
+        request.setReturnUrl(returnUrl);
         request.setBizContent(bizContent(biz));
 
         try {

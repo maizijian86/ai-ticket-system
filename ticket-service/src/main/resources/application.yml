@@ -76,6 +76,12 @@ alipay:
   # 127.0.0.1 会连不上。
   return-url: ${ALIPAY_RETURN_URL:http://localhost:3000/membership/result}
 
+  # 钱包充值的异步通知地址。**必须与会员那个分开**：支付宝只会把通知 POST 到"下单那一刻"
+  # 给它的那个 URL，而两个回调处理器各自只认自己单号前缀（MEM / WAL）。
+  # 为空时仅充值不可用，会员照常能买（见 AlipayProperties.isWalletConfigured）。
+  wallet-notify-url: ${ALIPAY_WALLET_NOTIFY_URL:}
+  wallet-return-url: ${ALIPAY_WALLET_RETURN_URL:http://localhost:3000/wallet/result}
+
 # AI Service (for Feign)
 # 这段配置已随 AiServiceClient 一起删除：本服务不再调用任何 Feign 客户端。
 # AI 能力（PRD / 技术建议 / 任务拆解 / 对话）全部由本服务内的 TicketAiService

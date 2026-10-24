@@ -35,7 +35,7 @@ spring:
             # membership 是会员/会员订单（与 UserMembership、额度批次同在 ticket-service，
             # 因为"插一行会员 + 发 30 次次数"必须是同一个本地事务）。回调也走这条路由：
             # natapp 只配一条隧道、回调与其他接口同一个入口，排查时只有一条路径。
-            - Path=/api/v1/tickets,/api/v1/tickets/**,/api/v1/projects,/api/v1/projects/**,/api/v1/membership,/api/v1/membership/**
+            - Path=/api/v1/tickets,/api/v1/tickets/**,/api/v1/projects,/api/v1/projects/**,/api/v1/membership,/api/v1/membership/**,/api/v1/wallet,/api/v1/wallet/**
         # 此处原有 id: ai-service（8083）的路由，转发 /api/v1/ai/**。
         # 该服务已整个删除：它只有两个接口且无人调用，功能已由 ticket-service 的
         # TicketAiService 覆盖。前端也从未调用过 /api/v1/ai/**（见 api/index.ts 的注释）。
