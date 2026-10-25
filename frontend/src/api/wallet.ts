@@ -36,8 +36,9 @@ export const walletApi = {
    * 后端在这条路径上带**侧效应**：PENDING 超过 15 分钟时会主动查一次支付宝
    * （回调丢了也能自愈）。所以轮询要有上限，别无限打。
    */
-  getOrder(outTradeNo: string) {
-    return request.get<any, WalletOrderDTO>(`/v1/wallet/orders/${outTradeNo}`)
+  getOrder(outTradeNo: string, force = false) {
+    // force=true：不等 15 分钟门槛，立刻向支付宝查一次（见会员同名方法）
+    return request.get<any, WalletOrderDTO>(`/v1/wallet/orders/${outTradeNo}`, { params: { force } })
   },
 
   /** 我的充值记录（分页，从 1 开始） */

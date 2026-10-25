@@ -154,20 +154,32 @@ public class WalletPaymentService {
      * <p>也不能只信 return_url：那个跳转只说明"浏览器回来了"，不说明"钱到账了"，
      * 任何人手工构造那个 URL 都能走到。
      */
-    public WalletOrderDTO getOrderWithSync(Long userId, String outTradeNo) {
+    public WalletOrderDTO getOrderWithSync(Long userId, String outTradeNo, boolean force) {
         WalletOrder order = walletService.loadOrderOr404(outTradeNo);
         walletService.requireOwnership(order, userId);
 
-        if (shouldQueryAlipay(order)) {
+        if (shouldQueryAlipay(order, force)) {
             syncFromAlipay(outTradeNo);
         }
         return walletService.orderDto(outTradeNo);
     }
 
-    private static boolean shouldQueryAlipay(WalletOrder order) {
+    /**
+     * 该不该现在向支付宝查一次。
+     *
+     * <p>三个条件缺一不可：仍待支付、有创建时间、以及满足下面之一 ——
+     *   · {@code force=true}：结果页**首次进入**与用户点「刷新状态」时传。
+     *     那两个时刻用户刚离开收银台，正是最该核对的时刻；原先一律等 15 分钟，
+     *     用户会盯着「等待支付确认」干等，明明钱已经付了。
+     *   · 创建超过 {@code QUERY_AFTER}（15 分钟）：轮询兜底，防止回调彻底丢失。
+     *
+     * <p>轮询走 {@code force=false}，避免每 2 秒打一次支付宝。
+     * 非 PENDING（已支付 / 已关闭）一律不查 —— 终态没必要再问。
+     */
+    private static boolean shouldQueryAlipay(WalletOrder order, boolean force) {
         return order.getStatus() == WalletOrderStatus.PENDING
                 && order.getCreatedAt() != null
-                && order.getCreatedAt().isBefore(LocalDateTime.now().minus(QUERY_AFTER));
+                && (force || order.getCreatedAt().isBefore(LocalDateTime.now().minus(QUERY_AFTER)));
     }
 
     /**

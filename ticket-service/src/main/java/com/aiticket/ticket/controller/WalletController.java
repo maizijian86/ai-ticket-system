@@ -76,8 +76,9 @@ public class WalletController {
      */
     @GetMapping("/orders/{outTradeNo}")
     public Result<WalletOrderDTO> getOrder(@PathVariable String outTradeNo,
+                                           @RequestParam(defaultValue = "false") boolean force,
                                            @RequestHeader(value = "X-User-Id", required = false) Long userId) {
-        return Result.success(paymentService.getOrderWithSync(userId, outTradeNo));
+        return Result.success(paymentService.getOrderWithSync(userId, outTradeNo, force));
     }
 
     /**

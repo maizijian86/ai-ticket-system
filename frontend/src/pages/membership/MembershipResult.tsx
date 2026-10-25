@@ -72,12 +72,12 @@ export default function MembershipResult() {
    * 用 ref 转一层是因为 startPolling 的 setInterval 回调需要"最新"的这个函数，
    * 而 useCallback 依赖 order 会让 interval 每 2 秒重建一次 —— 那样计时永远重置。
    */
-  const fetchOrderRef = useRef<() => Promise<void>>(async () => {})
+  const fetchOrderRef = useRef<(force?: boolean) => Promise<void>>(async () => {})
 
-  const fetchOrder = useCallback(async () => {
+  const fetchOrder = useCallback(async (force = false) => {
     if (!outTradeNo) return
     try {
-      const data = await membershipApi.getOrder(outTradeNo)
+      const data = await membershipApi.getOrder(outTradeNo, force)
       if (!alive.current) return
       setOrder(data)
       setLoadFailed(false)
@@ -112,7 +112,8 @@ export default function MembershipResult() {
   useEffect(() => {
     alive.current = true
     if (!outTradeNo) return () => { alive.current = false }
-    void fetchOrder()
+    // 首次进入就强制查一次：这一刻用户刚离开收银台，是最该核对的时刻
+    void fetchOrder(true)
     startPolling()
     return () => {
       alive.current = false
@@ -142,7 +143,7 @@ export default function MembershipResult() {
 
   async function manualRefresh() {
     setRefreshing(true)
-    await fetchOrderRef.current()
+    await fetchOrderRef.current(true)
     // 还是 PENDING 就再开一轮（而不是让用户再点一次）
     if (order?.status === 'PENDING') {
       setExhausted(false)

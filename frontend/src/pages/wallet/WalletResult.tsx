@@ -55,12 +55,12 @@ export default function WalletResultPage() {
     }
   }, [])
 
-  const fetchOrderRef = useRef<() => Promise<void>>(async () => {})
+  const fetchOrderRef = useRef<(force?: boolean) => Promise<void>>(async () => {})
 
-  const fetchOrder = useCallback(async () => {
+  const fetchOrder = useCallback(async (force = false) => {
     if (!outTradeNo) return
     try {
-      const data = await walletApi.getOrder(outTradeNo)
+      const data = await walletApi.getOrder(outTradeNo, force)
       if (!alive.current) return
       setOrder(data)
       setLoadFailed(false)
@@ -92,7 +92,8 @@ export default function WalletResultPage() {
   useEffect(() => {
     alive.current = true
     if (!outTradeNo) return () => { alive.current = false }
-    void fetchOrder()
+    // 首次进入就强制查一次：这一刻用户刚离开收银台，是最该核对的时刻
+    void fetchOrder(true)
     startPolling()
     return () => {
       alive.current = false
@@ -116,7 +117,7 @@ export default function WalletResultPage() {
 
   async function manualRefresh() {
     setRefreshing(true)
-    await fetchOrderRef.current()
+    await fetchOrderRef.current(true)
     if (order?.status === 'PENDING') {
       setExhausted(false)
       startPolling()

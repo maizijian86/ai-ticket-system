@@ -165,21 +165,23 @@ public class MembershipPaymentService {
      * 这也解释了为什么不能只信 return_url：那个跳转只说明"浏览器回来了"，
      * 不说明"钱到账了"，任何人手工构造那个 URL 都能走到。
      */
-    public MembershipOrderDTO getOrderWithSync(Long userId, String outTradeNo) {
+    public MembershipOrderDTO getOrderWithSync(Long userId, String outTradeNo, boolean force) {
         membershipService.requireLogin(userId);
         MembershipOrder order = membershipService.loadOrderOr404(outTradeNo);
         membershipService.requireOwnership(order, userId);
 
-        if (shouldQueryAlipay(order)) {
+        // 只在仍待支付时才查（force=true 时不等 15 分钟门槛，理由见 WalletPaymentService）
+        if (shouldQueryAlipay(order, force)) {
             syncFromAlipay(outTradeNo);
         }
         return membershipService.reload(outTradeNo);
     }
 
-    private static boolean shouldQueryAlipay(MembershipOrder order) {
+    /** 该不该现在查一次支付宝。规则与 WalletPaymentService.shouldQueryAlipay 一致 */
+    private static boolean shouldQueryAlipay(MembershipOrder order, boolean force) {
         return order.getStatus() == MembershipOrderStatus.PENDING
                 && order.getCreatedAt() != null
-                && order.getCreatedAt().isBefore(LocalDateTime.now().minus(QUERY_AFTER));
+                && (force || order.getCreatedAt().isBefore(LocalDateTime.now().minus(QUERY_AFTER)));
     }
 
     /**

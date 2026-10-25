@@ -33,8 +33,10 @@ export const membershipApi = {
    * 单笔订单状态。结果页轮询用 —— 后端在这条路径上带**侧效应**：
    * PENDING 超过 15 分钟时会主动查一次支付宝兜底（回调丢了也能自愈）。
    */
-  getOrder(outTradeNo: string) {
-    return request.get<any, MembershipOrderDTO>(`/v1/membership/orders/${outTradeNo}`)
+  getOrder(outTradeNo: string, force = false) {
+    // force=true：让后端**不等 15 分钟门槛**立刻向支付宝查一次。
+    // 结果页首次进入与「刷新状态」用 true；轮询用 false，避免每秒打一次支付宝。
+    return request.get<any, MembershipOrderDTO>(`/v1/membership/orders/${outTradeNo}`, { params: { force } })
   },
 
   /** 我的订单（分页）。参数从 1 开始，与全站一致 */

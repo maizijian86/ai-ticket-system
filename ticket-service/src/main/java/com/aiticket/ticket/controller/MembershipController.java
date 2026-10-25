@@ -76,9 +76,11 @@ public class MembershipController {
      */
     @GetMapping("/orders/{outTradeNo}")
     public Result<MembershipOrderDTO> getOrder(@PathVariable String outTradeNo,
+                                               @RequestParam(defaultValue = "false") boolean force,
                                                @RequestHeader(value = "X-User-Id", required = false) Long userId) {
-        return Result.success(paymentService.getOrderWithSync(userId, outTradeNo));
+        return Result.success(paymentService.getOrderWithSync(userId, outTradeNo, force));
     }
+
 
     /**
      * 支付宝异步通知。**不鉴权**（网关白名单放行），也**不能**返回 {@code Result}。
