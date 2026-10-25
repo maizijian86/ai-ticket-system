@@ -87,7 +87,20 @@ mysql -uroot -p < db/schema.sql
 ```bash
 mysql -uroot -p aiticket < db/sample-data.sql            # 小样本，各列齐全
 mysql -uroot -p aiticket < db/seed/real_tickets.sql      # 50 张演示工单
+mysql -uroot -p aiticket < db/seed/release_all_tickets.sql   # 把演示工单全部放回大厅
 ```
+
+> **演示数据里的历史工单需要补托管**（否则详情页会显示「不涉及资金结算」）：
+> 这两个脚本只对**钱包功能上线前**创建的工单有意义，新建的库用不着。
+>
+> ```bash
+> mysql -uroot -p aiticket < db/seed/backfill_escrow_for_legacy_tickets.sql
+> mysql -uroot -p aiticket < db/seed/top_up_demo_publishers.sql   # 可选：给发布者留点可用余额
+> ```
+>
+> 它们会**造数据**：给发布者注资（记成 `RECHARGE`，但 `ref_type` / `ref_id` 留 NULL，
+> 不对应任何支付宝订单）、建 `ticket_escrow`、补 `FREEZE` / `SETTLE_*` 流水。
+> 跑完账本三条恒等式仍成立，脚本末尾有校验 SQL。两个脚本都可重复执行。
 
 > `db/migration.sql` 是补列脚本，**不可重复执行**（需要 `--force`），
 > 仅用于给已存在的旧库补列。新建库不需要它。
