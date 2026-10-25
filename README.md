@@ -227,6 +227,10 @@ ai-ticket-system/
 
 - 网关与 user-service 的 `jwt.secret` 必须一致，否则表现为"登录成功但之后每个接口都 401"。
 - 支付宝回调需要公网可达（开发期用 natapp 之类隧道，免费版域名每次重启都会变）。
+  **natapp 重连后如何读到新域名**：它自带一个本地控制台 <http://127.0.0.1:4040>，
+  页面里的 `PublicUrl` 就是当前公网地址（比翻它的黑窗口可靠）。读到之后改
+  `application-secret.yml` 的 `ALIPAY_NOTIFY_URL` 与 `ALIPAY_WALLET_NOTIFY_URL`
+  两个值，然后重启 ticket-service —— **只改一个不行**，会员与充值的回调是两个入口。
   `notify-url` 改完要重启 ticket-service，且旧的待支付订单不要再用
   （它带着下单那一刻的 notify-url）。
 - 支付结果页会轮询查单；`PENDING` 超过 15 分钟时后端会主动向支付宝查一次兜底，
